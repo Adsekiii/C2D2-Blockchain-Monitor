@@ -4,6 +4,9 @@ from business_logic_layer import BlockchainLogic
 from reporting_layer import ConsoleReporter
 
 async def monitor_blocks():
+
+    latest_block = 0
+
     async with BlockchainAccess() as access:
         logic = BlockchainLogic(access.w3)
         reporter = ConsoleReporter()
@@ -17,6 +20,9 @@ async def monitor_blocks():
         try:
             for i in range(1, 11):
                 raw_block = await access.get_latest_block()
+                while raw_block['number'] == latest_block:
+                    raw_block = await access.get_latest_block()
+                latest_block = raw_block['number']
                 processed_block = logic.process_block_data(raw_block)
                 reporter.report_block(processed_block, i)
 
