@@ -12,9 +12,7 @@ async def monitor_blocks():
         logic = BlockchainLogic(
             access.w3,
             filters=[
-                HighValueFilter(0.005),
-                GasPriceFilter(0.3),
-                FailedTransactionFilter(False)
+                 GasPriceFilter(0.03)
             ]
         )
         reporter = ConsoleReporter()
