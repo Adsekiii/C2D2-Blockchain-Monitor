@@ -1,6 +1,7 @@
 import asyncio
 from access_layer import BlockchainAccess
 from business_logic_layer import BlockchainLogic
+from filters import HighValueFilter, HighFeeFilter, GasPriceFilter, FailedTransactionFilter, TokenTransferFilter, AddressFilter, ContractInteractionFilter, WhaleTransactionFilter, FrequentSenderFilter
 from reporting_layer import ConsoleReporter
 
 async def monitor_blocks():
@@ -8,7 +9,14 @@ async def monitor_blocks():
     latest_block = 0
 
     async with BlockchainAccess() as access:
-        logic = BlockchainLogic(access.w3)
+        logic = BlockchainLogic(
+            access.w3,
+            filters=[
+                HighValueFilter(0.005),
+                GasPriceFilter(0.3),
+                FailedTransactionFilter(False)
+            ]
+        )
         reporter = ConsoleReporter()
 
         is_connected = await access.connect()
@@ -33,7 +41,11 @@ async def monitor_blocks():
                     raw_receipt = await access.get_transaction_receipt(latest_tx_hash)
                     
                     processed_tx = logic.process_transaction_data(raw_tx, raw_receipt)
-                    reporter.report_transaction(processed_tx, processed_block['number'])
+
+                    if processed_tx:
+                        reporter.report_transaction(processed_tx, processed_block['number'])
+                    else:
+                        print("odfiltrowane")
                 else:
                     reporter.report_no_transactions()
                     
