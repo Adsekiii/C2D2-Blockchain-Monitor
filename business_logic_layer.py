@@ -1,3 +1,5 @@
+import asyncio
+
 from access_layer import BlockchainAccess
 from config import AppConfig
 
@@ -41,18 +43,19 @@ class BlockchainLogic:
     # Block handling
     # -------------------------
 
-    async def _process_block_with_tx(self, block_num: int, iteration=None) -> None:
+    async def _process_block_with_tx(self, block_num: int, iteration=None, fetch_tx=True) -> None:
         block = self.access.get_block(block_num, full_transactions=True)
         block_data = self.process_block_data(block)
         self.reporter.report_block(block_data, iteration or block_num)
 
-        if block["transactions"]:
-            last_tx = block["transactions"][-1]
-            receipt = self.access.get_transaction_receipt(last_tx["hash"])
-            tx_data = self.process_transaction_data(last_tx, receipt)
-            self.reporter.report_transaction(tx_data, block_data["number"])
-        else:
-            self.reporter.report_no_transactions()
+        if fetch_tx:
+            if block["transactions"]:
+                last_tx = block["transactions"][-1]
+                receipt = self.access.get_transaction_receipt(last_tx["hash"])
+                tx_data = self.process_transaction_data(last_tx, receipt)
+                self.reporter.report_transaction(tx_data, block_data["number"])
+            else:
+                self.reporter.report_no_transactions()
 
     # -------------------------
     # Fetch historical blocks
@@ -62,6 +65,7 @@ class BlockchainLogic:
         count = count or self.app.blocks_to_fetch
         latest_number = self.access.get_latest_block_number()
         start_block = max(0, latest_number - count + 1)
+        tx_subset_start = latest_number - 9
 
         self.reporter.logger.info(
             f"Fetching blocks {start_block} – {latest_number} "
@@ -70,8 +74,10 @@ class BlockchainLogic:
 
         for block_num in range(start_block, latest_number + 1):
             iteration = block_num - start_block + 1
+            fetch_tx = block_num >= tx_subset_start
             try:
-                await self._process_block_with_tx(block_num, iteration)
+                await self._process_block_with_tx(block_num, iteration, fetch_tx)
+                await asyncio.sleep(0.1)
             except Exception as exc:
                 self.reporter.logger.warning(
                     f"Error processing block {block_num}: {exc}"
