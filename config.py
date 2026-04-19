@@ -20,5 +20,5 @@ class ConnConfig:
     
 @dataclass
 class AppConfig:
-    blocks_to_fetch: int = 1 #Ilość bloków do pobrania przy starcie (zmienić na 100 przed oddaniem)
+    blocks_to_fetch: int = 3 #Ilość bloków do pobrania przy starcie (zmienić na 100 przed oddaniem)
     reconnect_delay: int = 5

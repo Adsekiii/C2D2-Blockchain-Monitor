@@ -1,30 +1,59 @@
 import asyncio
+from decimal import Decimal
 
 from access_layer import BlockchainAccess
 from config import AppConfig
 
 
 class BlockchainLogic:
-    def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig):
+    def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig, filters=None):
         self.access = access
         self.reporter = reporter
         self.app = app_config
+        self.filters = filters or []
+
+        self.stats = {
+            "total_blocks": 0,
+            "total_transactions": 0,
+            "total_gas_used": 0,
+            "total_eth_value": Decimal("0"),
+        }
+
+    # -------------------------
+    # Filtering
+    # -------------------------
+
+    def passes_filters(self, tx_details, tx_receipt) -> bool:
+        return all(
+            f.apply(tx_details, tx_receipt, self.access)
+            for f in self.filters
+        )
 
     # -------------------------
     # Data processing
     # -------------------------
 
     def process_block_data(self, block) -> dict:
+        tx_count = len(block["transactions"])
+        self.stats["total_blocks"] += 1
+        self.stats["total_transactions"] += tx_count
+
         return {
             "number": block["number"],
-            "transactions_count": len(block["transactions"]),
+            "transactions_count": tx_count,
             "hash": block["hash"].hex(),
         }
 
-    def process_transaction_data(self, tx_details, tx_receipt) -> dict:
-        eth_amount = self.access.from_wei(tx_details["value"], "ether")
+    def process_transaction_data(self, tx_details, tx_receipt) -> dict | None:
         gas_used = tx_receipt["gasUsed"]
+        eth_amount = self.access.from_wei(tx_details["value"], "ether")
         gas_price = tx_details["gasPrice"]
+
+        self.stats["total_gas_used"] += gas_used
+        self.stats["total_eth_value"] += Decimal(str(eth_amount))
+
+        if not self.passes_filters(tx_details, tx_receipt):
+            return None
 
         total_cost_wei = gas_used * gas_price
         total_cost_eth = self.access.from_wei(total_cost_wei, "ether")
@@ -37,6 +66,22 @@ class BlockchainLogic:
             "gas_used": gas_used,
             "gas_price_wei": gas_price,
             "fee_eth": total_cost_eth,
+        }
+
+    # -------------------------
+    # Aggregated stats
+    # -------------------------
+
+    def get_aggregated_stats(self) -> dict:
+        avg_gas = 0
+        if self.stats["total_blocks"] > 0:
+            avg_gas = self.stats["total_gas_used"] / self.stats["total_blocks"]
+
+        return {
+            "summary_blocks_processed": self.stats["total_blocks"],
+            "summary_transactions_monitored": self.stats["total_transactions"],
+            "average_gas_per_block": round(avg_gas, 2),
+            "total_value_transferred_eth": round(self.stats["total_eth_value"], 6),
         }
 
     # -------------------------
@@ -53,7 +98,10 @@ class BlockchainLogic:
                 last_tx = block["transactions"][-1]
                 receipt = self.access.get_transaction_receipt(last_tx["hash"])
                 tx_data = self.process_transaction_data(last_tx, receipt)
-                self.reporter.report_transaction(tx_data, block_data["number"])
+                if tx_data:
+                    self.reporter.report_transaction(tx_data, block_data["number"])
+                else:
+                    self.reporter.report_filtered_transaction()
             else:
                 self.reporter.report_no_transactions()
 

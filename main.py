@@ -4,6 +4,7 @@ import sys
 from access_layer import BlockchainAccess
 from business_logic_layer import BlockchainLogic
 from config import ConnConfig, AppConfig
+from filters import HighValueFilter, HighFeeFilter, GasPriceFilter, FailedTransactionFilter, TokenTransferFilter, AddressFilter, ContractInteractionFilter, WhaleTransactionFilter, FrequentSenderFilter
 from reporting_layer import ConsoleReporter
 
 
@@ -19,7 +20,14 @@ async def main() -> None:
         reporter.logger.error("Cannot connect to the network. Check your API key and URL.")
         sys.exit(1)
 
-    logic = BlockchainLogic(access, reporter, app_cfg)
+    logic = BlockchainLogic(
+        access,
+        reporter,
+        app_cfg,
+        filters=[
+            GasPriceFilter(0.03),
+        ],
+    )
 
     last_block = await logic.fetch_latest_blocks()
 

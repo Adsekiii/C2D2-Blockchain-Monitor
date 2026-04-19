@@ -67,6 +67,8 @@ class ConsoleReporter:
     def report_no_transactions(self):
         self.logger.info("This block does not have any transactions registered")
 
+    def report_filtered_transaction(self):
+        self.logger.info("Transaction filtered out")
 
     def print_final_summary(self):
         self.logger.info("\n=== SUMMARY REPORT ===")
