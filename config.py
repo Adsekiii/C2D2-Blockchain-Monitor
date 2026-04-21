@@ -17,3 +17,8 @@ class ConnConfig:
     @property
     def get_wss_url(self) -> str:
         return f"{self.wss_url}{self.api_key}" 
+    
+@dataclass
+class AppConfig:
+    blocks_to_fetch: int = 3 #Ilość bloków do pobrania przy starcie (zmienić na 100 przed oddaniem)
+    reconnect_delay: int = 5
