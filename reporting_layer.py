@@ -1,6 +1,6 @@
+import csv
 import os
 import logging
-import sys
 from datetime import datetime
 
 
@@ -14,9 +14,11 @@ class ConsoleReporter:
         self.total_fee_eth = 0
 
         os.makedirs("logs", exist_ok=True)
+        os.makedirs("logs/csv", exist_ok=True)
 
         timestamp = datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
         log_filename = f"logs/{timestamp}.log"
+        self.csv_filename = f"logs/csv/{timestamp}.csv"
 
         self.logger = logging.getLogger("ConsoleReporter")
         self.logger.setLevel(logging.INFO)
@@ -31,6 +33,19 @@ class ConsoleReporter:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(console_formatter)
         self.logger.addHandler(console_handler)
+
+        with open(self.csv_filename, mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                "Block_number",
+                "TX_hash",
+                "Sender",
+                "Receiver",
+                "ETH_amount",
+                "Gas_used",
+                "Gas_price",
+                "ETH_fee"
+            ])
 
     def report_connection_status(self, is_connected):
         if is_connected:
@@ -62,6 +77,19 @@ class ConsoleReporter:
         self.total_gas_used += tx_data['gas_used']
         self.total_gas_price_wei += tx_data['gas_price_wei']
         self.total_fee_eth += tx_data['fee_eth']
+
+        with open(self.csv_filename, mode="a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                block_number,
+                tx_data['hash'],
+                tx_data['sender'],
+                tx_data['receiver'],
+                tx_data['amount_eth'],
+                tx_data['gas_used'],
+                tx_data['gas_price_wei'],
+                tx_data['fee_eth']
+            ])
 
 
     def report_no_transactions(self):
