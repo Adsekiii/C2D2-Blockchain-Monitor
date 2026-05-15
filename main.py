@@ -3,6 +3,7 @@ from access_layer import BlockchainAccess
 from business_logic_layer import BlockchainLogic
 from filters import HighValueFilter, HighFeeFilter, GasPriceFilter, FailedTransactionFilter, TokenTransferFilter, AddressFilter, ContractInteractionFilter, WhaleTransactionFilter, FrequentSenderFilter
 from reporting_layer import ConsoleReporter
+import gui
 
 async def monitor_blocks():
 
@@ -57,7 +58,7 @@ async def monitor_blocks():
 
 def main():
     try:
-        asyncio.run(monitor_blocks())
+        gui.main()
     except KeyboardInterrupt:
         print("\nUżytkownik wstrzymał działanie")
 

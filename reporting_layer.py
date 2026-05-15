@@ -20,8 +20,12 @@ class ConsoleReporter:
         log_filename = f"logs/{timestamp}.log"
         self.csv_filename = f"logs/csv/{timestamp}.csv"
 
-        self.logger = logging.getLogger("ConsoleReporter")
+        self.logger = logging.getLogger(
+            f"ConsoleReporter_{timestamp}"
+        )
+
         self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
 
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         console_formatter = logging.Formatter("%(message)s")
