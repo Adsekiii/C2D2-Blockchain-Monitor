@@ -899,23 +899,27 @@ class BlockchainMonitorWindow(QMainWindow):
         center = Qt.AlignmentFlag.AlignCenter
 
         blk_item = cell(str(block_number), COLORS['accent'], center)
-        hash_item = cell(tx_data['hash'][:22] + "…", COLORS['text_secondary'])
+        hash_item = cell(tx_data['hash'], COLORS['text_secondary'])
         hash_item.setToolTip(tx_data['hash'])
 
-        sender_item = cell(tx_data['sender'][:18] + "…", COLORS['accent_yellow'])
+        sender_item = cell(tx_data['sender'], COLORS['accent_yellow'])
         sender_item.setToolTip(tx_data['sender'])
 
         recv = tx_data['receiver'] or "—"
-        recv_short = (recv[:18] + "…") if len(recv) > 20 else recv
+        recv_short = (recv) if len(recv) > 20 else recv
         recv_item = cell(recv_short, COLORS['text_primary'])
         recv_item.setToolTip(recv)
 
         eth_item = cell(f"{float(eth_val):.6f}", COLORS['accent_green'], center)
         gas_item = cell(str(tx_data['gas_used']), COLORS['text_secondary'], center)
+
+        gas_price_gwei = float(tx_data['gas_price_wei']) / 1e9
+        gas_price_item = cell(f"{gas_price_gwei:.4f}", COLORS['text_secondary'], center)
+
         fee_item = cell(f"{float(fee_val):.6f}", "#f0883e", center)
 
         for col, item in enumerate([blk_item, hash_item, sender_item, recv_item,
-                                     eth_item, gas_item, fee_item]):
+                                    eth_item, gas_item, gas_price_item, fee_item]):
             self.tx_table.setItem(row, col, item)
 
         self.tx_table.scrollToBottom()
@@ -979,7 +983,6 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    # Base dark palette so OS widgets match
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window,          QColor(COLORS['bg_primary']))
     palette.setColor(QPalette.ColorRole.WindowText,      QColor(COLORS['text_primary']))
