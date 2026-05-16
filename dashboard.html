@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETH Block Monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <header>
+    <div class="logo">
+      <div class="logo-dot" id="conn-dot"></div>
+      ETH BLOCK MONITOR
+      <span class="network">sepolia</span>
+    </div>
+    <div class="header-meta">
+      <div class="status-badge" id="conn-badge">
+        <span id="conn-label">Łączenie...</span>
+      </div>
+      <div class="live-tag" id="live-tag" style="display:none">
+        <div class="live-tag-dot"></div>
+        LIVE
+      </div>
+      <span id="last-update" style="color:var(--text-dark); font-size:12px; font-family:var(--mono)"></span>
+    </div>
+  </header>
+
+  <main>
+
+    <aside>
+      <div class="aside-header">
+        Bloki
+        <span class="block-count" id="block-count">0 / 100</span>
+      </div>
+      <div id="block-list"></div>
+    </aside>
+
+    <div class="detail-panel">
+      <div class="detail-content" id="detail-content">
+        <div class="detail-empty" id="detail-empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M16 7V5a2 2 0 0 0-4 0v2"/>
+            <line x1="12" y1="12" x2="12" y2="16"/>
+          </svg>
+          Wybierz blok z listy, aby zobaczyć szczegóły
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-item">
+          <div class="stat-label">Bloków ogółem</div>
+          <div class="stat-val" id="stat-blocks">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Transakcji ogółem</div>
+          <div class="stat-val" id="stat-txs">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Śr. TX / blok</div>
+          <div class="stat-val" id="stat-avg">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Ostatni blok</div>
+          <div class="stat-val" id="stat-latest">—</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const WS_URL = `ws://${location.host}/ws`;
+const MAX_BLOCKS = 100;
+
+let blocks = [];
+let selectedIdx = null;
+let totalTxs = 0;
+let ws = null;
+
+// ── Elements ───────────────────────────────────────────────────────────────
+const blockList   = document.getElementById('block-list');
+const detailEmpty = document.getElementById('detail-empty');
+const detailContent = document.getElementById('detail-content');
+const blockCount  = document.getElementById('block-count');
+const connDot     = document.getElementById('conn-dot');
+const connBadge   = document.getElementById('conn-badge');
+const connLabel   = document.getElementById('conn-label');
+const liveTag     = document.getElementById('live-tag');
+const lastUpdate  = document.getElementById('last-update');
+const statBlocks  = document.getElementById('stat-blocks');
+const statTxs     = document.getElementById('stat-txs');
+const statAvg     = document.getElementById('stat-avg');
+const statLatest  = document.getElementById('stat-latest');
+const toast       = document.getElementById('toast');
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  clearTimeout(toastTimer);
+  toast.textContent = msg;
+  toast.classList.add('show');
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+// ── Connection state ───────────────────────────────────────────────────────
+function setConnected(ok) {
+  connDot.className = 'logo-dot' + (ok ? '' : ' offline');
+  connLabel.textContent = ok ? 'Połączono' : 'Rozłączono';
+  connBadge.style.borderColor = ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+  liveTag.style.display = ok ? 'inline-flex' : 'none';
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+function shortHash(h) {
+  if (!h) return '—';
+  return h.slice(0, 10) + '…' + h.slice(-8);
+}
+
+function renderBlockRow(block, idx, prepend = false) {
+  const el = document.createElement('div');
+  el.className = 'block-row';
+  el.dataset.idx = idx;
+
+  const txCount = block.transactions_count;
+  el.innerHTML = `
+    <div class="block-num">#${block.number.toLocaleString()}</div>
+    <div class="block-tx-badge ${txCount === 0 ? 'zero' : ''}">${txCount} TX</div>
+    <div class="block-time" title="${block.hash}">${shortHash(block.hash)}</div>
+  `;
+  el.addEventListener('click', () => selectBlock(idx));
+  return el;
+}
+
+function rebuildList() {
+  blockList.innerHTML = '';
+  blocks.forEach((b, i) => {
+    blockList.appendChild(renderBlockRow(b, i));
+  });
+  updateSelection();
+}
+
+function prependRow(block, idx) {
+  const el = renderBlockRow(block, idx, true);
+  blockList.insertBefore(el, blockList.firstChild);
+  Array.from(blockList.children).forEach((row, ri) => {
+    row.dataset.idx = ri;
+    row.onclick = () => selectBlock(ri);
+  });
+}
+
+function updateStats() {
+  const n = blocks.length;
+  statBlocks.textContent = n.toLocaleString();
+
+  totalTxs = blocks.reduce((s, b) => s + (b.transactions_count || 0), 0);
+  statTxs.textContent = totalTxs.toLocaleString();
+  statAvg.textContent = n > 0 ? (totalTxs / n).toFixed(1) : '—';
+
+  if (n > 0) {
+    statLatest.textContent = '#' + blocks[0].number.toLocaleString();
+  }
+
+  blockCount.textContent = `${n} / ${MAX_BLOCKS}`;
+}
+
+function updateSelection() {
+  Array.from(blockList.children).forEach(row => {
+    row.classList.toggle('active', parseInt(row.dataset.idx) === selectedIdx);
+  });
+}
+
+// Zmodyfikowana funkcja selectBlock obsługująca style aktywnego wiersza
+function selectBlock(idx) {
+  selectedIdx = idx;
+  updateSelection();
+  renderDetail(blocks[idx]);
+}
+
+function renderDetail(block) {
+  detailContent.innerHTML = `
+    <div class="section-title">Szczegóły bloku</div>
+
+    <div class="detail-grid">
+      <div class="detail-card">
+        <div class="detail-label">Numer bloku</div>
+        <div class="detail-card-val">#${block.number.toLocaleString()}</div>
+      </div>
+      <div class="detail-card">
+        <div class="detail-label">Transakcje</div>
+        <div class="detail-card-val green">${block.transactions_count.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <div class="detail-label">Pełny Hash bloku</div>
+    <div class="detail-value hash">${block.hash}</div>
+
+    <div class="detail-label">Skrócony hash</div>
+    <div class="detail-value">${shortHash(block.hash)}</div>
+  `;
+}
+
+// ── Block ingestion ────────────────────────────────────────────────────────
+function addBlock(block) {
+  if (blocks.length > 0 && blocks[0].number === block.number) return;
+
+  blocks.unshift(block);
+  if (blocks.length > MAX_BLOCKS) blocks.pop();
+
+  if (blockList.children.length > 0) {
+    if (blockList.children.length >= MAX_BLOCKS) {
+      blockList.removeChild(blockList.lastChild);
+    }
+    prependRow(block, 0);
+  } else {
+    blockList.appendChild(renderBlockRow(block, 0));
+  }
+
+  if (selectedIdx !== null) selectedIdx++;
+
+  updateStats();
+  updateSelection();
+  lastUpdate.textContent = new Date().toLocaleTimeString('pl-PL');
+  showToast(`Nowy blok #${block.number.toLocaleString()} — ${block.transactions_count} TX`);
+}
+
+function loadHistory(data) {
+  blocks = [...data].reverse().slice(0, MAX_BLOCKS);
+  rebuildList();
+  updateStats();
+  if (blocks.length > 0) {
+    lastUpdate.textContent = new Date().toLocaleTimeString('pl-PL');
+  }
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setConnected(true);
+    console.log('[WS] Connected');
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'history') {
+        loadHistory(msg.data);
+      } else if (msg.type === 'block') {
+        addBlock(msg.data);
+      }
+    } catch (e) {
+      console.error('[WS] Parse error', e);
+    }
+  };
+
+  ws.onclose = () => {
+    setConnected(false);
+    console.log('[WS] Disconnected, retrying in 3s...');
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = (e) => {
+    console.error('[WS] Error', e);
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
