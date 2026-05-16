@@ -1,4 +1,5 @@
 import asyncio
+import time
 from decimal import Decimal
 
 from access_layer import BlockchainAccess
@@ -33,15 +34,29 @@ class BlockchainLogic:
     # Data processing
     # -------------------------
 
-    def process_block_data(self, block) -> dict:
+    def process_block_data(self, block, fetch_latency_ms: float = 0.0) -> dict:
         tx_count = len(block["transactions"])
         self.stats["total_blocks"] += 1
         self.stats["total_transactions"] += tx_count
 
+        # Obliczamy procent zużycia gazu (gasUsed / gasLimit)
+        gas_used = block.get("gasUsed", 0)
+        gas_limit = block.get("gasLimit", 1) # Unikamy dzielenia przez zero
+        gas_used_pct = round((gas_used / gas_limit) * 100) if gas_limit else 0
+
+        # Sumujemy statystyki zużycia gazu globalnie dla warstwy biznesowej
+        self.stats["total_gas_used"] += gas_used
+
         return {
             "number": block["number"],
             "transactions_count": tx_count,
-            "hash": block["hash"].hex(),
+            "hash": block["hash"].hex() if isinstance(block["hash"], bytes) else block["hash"],
+            "size_bytes": block.get("size", 0),
+            "timestamp": block.get("timestamp", 0),
+            "gas_used": gas_used,
+            "gas_limit": gas_limit,
+            "gas_used_pct": gas_used_pct,
+            "fetch_latency_ms": round(fetch_latency_ms, 1)
         }
 
     def process_transaction_data(self, tx_details, tx_receipt) -> dict | None:
@@ -59,13 +74,13 @@ class BlockchainLogic:
         total_cost_eth = self.access.from_wei(total_cost_wei, "ether")
 
         return {
-            "hash": tx_details["hash"].hex(),
-            "sender": tx_details["from"],
-            "receiver": tx_details["to"],
-            "amount_eth": eth_amount,
-            "gas_used": gas_used,
+            "hash":         tx_details["hash"].hex(),
+            "sender":       tx_details["from"],
+            "receiver":     tx_details["to"],
+            "amount_eth":   eth_amount,
+            "gas_used":     gas_used,
             "gas_price_wei": gas_price,
-            "fee_eth": total_cost_eth,
+            "fee_eth":      total_cost_eth,
         }
 
     # -------------------------
@@ -78,10 +93,10 @@ class BlockchainLogic:
             avg_gas = self.stats["total_gas_used"] / self.stats["total_blocks"]
 
         return {
-            "summary_blocks_processed": self.stats["total_blocks"],
+            "summary_blocks_processed":      self.stats["total_blocks"],
             "summary_transactions_monitored": self.stats["total_transactions"],
-            "average_gas_per_block": round(avg_gas, 2),
-            "total_value_transferred_eth": round(self.stats["total_eth_value"], 6),
+            "average_gas_per_block":         round(avg_gas, 2),
+            "total_value_transferred_eth":   round(self.stats["total_eth_value"], 6),
         }
 
     # -------------------------
@@ -89,8 +104,17 @@ class BlockchainLogic:
     # -------------------------
 
     async def _process_block_with_tx(self, block_num: int, iteration=None, fetch_tx=True) -> None:
+        import time # import na początku pliku lub tutaj dla wygody
+        
+        start_time = time.perf_counter()
         block = self.access.get_block(block_num, full_transactions=True)
-        block_data = self.process_block_data(block)
+        end_time = time.perf_counter()
+        
+        # Obliczamy czas pobierania bloku w milisekundach
+        latency_ms = (end_time - start_time) * 1000
+
+        # Przekazujemy latencję do procesora danych bloku
+        block_data = self.process_block_data(block, fetch_latency_ms=latency_ms)
         self.reporter.report_block(block_data, iteration or block_num)
 
         if fetch_tx:

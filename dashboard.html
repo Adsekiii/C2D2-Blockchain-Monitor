@@ -1,76 +1,123 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ETH Block Monitor</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETH Block Monitor</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-
 <div class="shell">
 
-  <header>
-    <div class="logo">
-      <div class="logo-dot" id="conn-dot"></div>
-      ETH BLOCK MONITOR
-      <span class="network">sepolia</span>
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-dot" id="conn-dot"></div>
+    ETH BLOCK MONITOR
+    <span class="network">sepolia</span>
+  </div>
+  <div class="header-meta">
+    <div class="status-badge" id="conn-badge">
+      <span id="conn-label">Łączenie...</span>
     </div>
-    <div class="header-meta">
-      <div class="status-badge" id="conn-badge">
-        <span id="conn-label">Łączenie...</span>
-      </div>
-      <div class="live-tag" id="live-tag" style="display:none">
-        <div class="live-tag-dot"></div>
-        LIVE
-      </div>
-      <span id="last-update" style="color:var(--text-dark); font-size:12px; font-family:var(--mono)"></span>
+    <div class="live-tag" id="live-tag" style="display:none">
+      <div class="live-tag-dot"></div>
+      LIVE
     </div>
-  </header>
+    <span id="last-update" style="color:var(--text-dark);font-size:11px;font-family:var(--mono)"></span>
+  </div>
+</header>
 
-  <main>
+<main>
 
-    <aside>
-      <div class="aside-header">
-        Bloki
-        <span class="block-count" id="block-count">0 / 100</span>
+  <!-- ── Sidebar ── -->
+  <aside>
+    <div class="aside-header">
+      Bloki
+      <span class="block-count" id="block-count">0 / 100</span>
+    </div>
+    <div id="block-list"></div>
+  </aside>
+
+  <!-- ── Right panel ── -->
+  <div class="right-panel">
+
+    <!-- Perf strip -->
+    <div class="perf-strip">
+      <div class="perf-cell">
+        <div class="perf-label">Latencja</div>
+        <div class="perf-val" id="p-lat">—</div>
+        <div class="perf-sub" id="p-lat-sub">avg — ms</div>
       </div>
-      <div id="block-list"></div>
-    </aside>
-
-    <div class="detail-panel">
-      <div class="detail-content" id="detail-content">
-        <div class="detail-empty" id="detail-empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="7" width="20" height="14" rx="2"/>
-            <path d="M16 7V5a2 2 0 0 0-4 0v2"/>
-            <line x1="12" y1="12" x2="12" y2="16"/>
-          </svg>
-          Wybierz blok z listy, aby zobaczyć szczegóły
-        </div>
+      <div class="perf-cell">
+        <div class="perf-label">Min / Max</div>
+        <div class="perf-val accent" id="p-minmax">—</div>
+        <div class="perf-sub">zakres ms</div>
       </div>
-
-      <div class="stats-bar">
-        <div class="stat-item">
-          <div class="stat-label">Bloków ogółem</div>
-          <div class="stat-val" id="stat-blocks">0</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Transakcji ogółem</div>
-          <div class="stat-val" id="stat-txs">0</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Śr. TX / blok</div>
-          <div class="stat-val" id="stat-avg">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Ostatni blok</div>
-          <div class="stat-val" id="stat-latest">—</div>
-        </div>
+      <div class="perf-cell">
+        <div class="perf-label">Bloki / min</div>
+        <div class="perf-val green" id="p-bpm">—</div>
+        <div class="perf-sub">ostatnia minuta</div>
+      </div>
+      <div class="perf-cell">
+        <div class="perf-label">TX / min</div>
+        <div class="perf-val green" id="p-tpm">—</div>
+        <div class="perf-sub">ostatnia minuta</div>
+      </div>
+      <div class="perf-cell">
+        <div class="perf-label">Dane przetw.</div>
+        <div class="perf-val purple" id="p-mb">0.000 MB</div>
+        <div class="perf-sub">od startu</div>
+      </div>
+      <div class="perf-cell">
+        <div class="perf-label">Czas pracy</div>
+        <div class="perf-val" id="p-uptime">—</div>
+        <div class="perf-sub" id="p-uptime-sub">hh:mm:ss</div>
       </div>
     </div>
 
-  </main>
+    <!-- Detail area -->
+    <div class="detail-scroll" id="detail-scroll">
+      <div class="detail-empty" id="detail-empty">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="7" width="20" height="14" rx="2"/>
+          <path d="M16 7V5a2 2 0 0 0-4 0v2"/>
+        </svg>
+        Wybierz blok z listy, aby zobaczyć szczegóły
+      </div>
+      <div id="detail-body" style="display:none"></div>
+    </div>
+
+    <!-- Stats footer -->
+    <div class="stats-bar">
+      <div class="stat-item">
+        <div class="stat-label">Bloków łącznie</div>
+        <div class="stat-val" id="s-blocks">0</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">TX łącznie</div>
+        <div class="stat-val" id="s-txs">0</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Śr. TX / blok</div>
+        <div class="stat-val" id="s-avg">—</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Śr. Gas / blok</div>
+        <div class="stat-val" id="s-gas">—</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Śr. latencja</div>
+        <div class="stat-val" id="s-lat">—</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Ostatni blok</div>
+        <div class="stat-val" id="s-latest">—</div>
+      </div>
+    </div>
+
+  </div>
+</main>
 </div>
 
 <div id="toast"></div>
@@ -79,197 +126,424 @@
 const WS_URL = `ws://${location.host}/ws`;
 const MAX_BLOCKS = 100;
 
-let blocks = [];
+let blocks      = [];
+let latHistory  = [];
 let selectedIdx = null;
-let totalTxs = 0;
-let ws = null;
+let ws          = null;
 
-// ── Elements ───────────────────────────────────────────────────────────────
-const blockList   = document.getElementById('block-list');
-const detailEmpty = document.getElementById('detail-empty');
-const detailContent = document.getElementById('detail-content');
-const blockCount  = document.getElementById('block-count');
-const connDot     = document.getElementById('conn-dot');
-const connBadge   = document.getElementById('conn-badge');
-const connLabel   = document.getElementById('conn-label');
-const liveTag     = document.getElementById('live-tag');
-const lastUpdate  = document.getElementById('last-update');
-const statBlocks  = document.getElementById('stat-blocks');
-const statTxs     = document.getElementById('stat-txs');
-const statAvg     = document.getElementById('stat-avg');
-const statLatest  = document.getElementById('stat-latest');
-const toast       = document.getElementById('toast');
+// ── Elements ──────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const blockList  = $('block-list');
+const blockCount = $('block-count');
+const connDot    = $('conn-dot');
+const connLabel  = $('conn-label');
+const connBadge  = $('conn-badge');
+const liveTag    = $('live-tag');
+const lastUpdate = $('last-update');
+const detailEmpty = $('detail-empty');
+const detailBody  = $('detail-body');
 
-// ── Toast ──────────────────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────
 let toastTimer;
-function showToast(msg) {
+function showToast(msg, color) {
   clearTimeout(toastTimer);
-  toast.textContent = msg;
-  toast.classList.add('show');
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+  const el = $('toast');
+  el.textContent = msg;
+  el.style.borderLeftColor = color || 'var(--accent)';
+  el.classList.add('show');
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-// ── Connection state ───────────────────────────────────────────────────────
+// ── Connection ────────────────────────────────────────────────────────────
 function setConnected(ok) {
   connDot.className = 'logo-dot' + (ok ? '' : ' offline');
   connLabel.textContent = ok ? 'Połączono' : 'Rozłączono';
-  connBadge.style.borderColor = ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+  connBadge.style.borderColor = ok
+    ? 'rgba(16,185,129,.35)'
+    : 'rgba(239,68,68,.35)';
   liveTag.style.display = ok ? 'inline-flex' : 'none';
 }
 
-// ── Render helpers ─────────────────────────────────────────────────────────
-function shortHash(h) {
-  if (!h) return '—';
-  return h.slice(0, 10) + '…' + h.slice(-8);
+// ── Formatters ────────────────────────────────────────────────────────────
+const loc  = n  => (n != null ? Number(n).toLocaleString('pl-PL') : '—');
+const mono = ms => ms != null ? ms + ' ms' : '—';
+
+function fmtGas(n) {
+  if (n == null) return '—';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + ' M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + ' K';
+  return String(n);
 }
 
-function renderBlockRow(block, idx, prepend = false) {
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+  if (b >= 1024)    return (b / 1024).toFixed(1) + ' KB';
+  return b + ' B';
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return d.toLocaleString('pl-PL');
+}
+
+function fmtUptime(s) {
+  if (!s) return '—';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  if (h) return `${h}h ${String(m).padStart(2,'0')}m`;
+  if (m) return `${m}m ${String(sc).padStart(2,'0')}s`;
+  return `${sc}s`;
+}
+
+function latClass(ms) {
+  if (!ms) return '';
+  if (ms < 500)  return 'green';
+  if (ms < 1500) return 'amber';
+  return 'red';
+}
+
+function gasClass(pct) {
+  if (pct >= 90) return 'high';
+  if (pct >= 65) return 'mid';
+  return '';
+}
+
+function shortHash(h) {
+  return h ? h.slice(0, 10) + '…' + h.slice(-8) : '—';
+}
+
+// ── Perf strip update ─────────────────────────────────────────────────────
+function updatePerf(p) {
+  if (!p) return;
+  latHistory = p.latency_history || [];
+
+  const lc = latClass(p.latency_last_ms);
+  const el = $('p-lat');
+  el.textContent = p.latency_last_ms != null ? p.latency_last_ms + ' ms' : '—';
+  el.className = 'perf-val ' + lc;
+  $('p-lat-sub').textContent = `avg ${p.latency_avg_ms ?? '—'} ms`;
+
+  $('p-minmax').textContent =
+    (p.latency_min_ms ?? '—') + ' / ' + (p.latency_max_ms ?? '—');
+  $('p-bpm').textContent    = p.blocks_per_min ?? '—';
+  $('p-tpm').textContent    = p.txs_per_min    ?? '—';
+  $('p-mb').textContent     = (p.bytes_processed_mb ?? 0).toFixed(3) + ' MB';
+  $('p-uptime').textContent = fmtUptime(p.uptime_s);
+
+  $('s-lat').textContent = p.latency_avg_ms ? p.latency_avg_ms + ' ms' : '—';
+
+  redrawSparkIfOpen();
+}
+
+// ── Footer stats ──────────────────────────────────────────────────────────
+function updateFooter() {
+  const n    = blocks.length;
+  const txs  = blocks.reduce((s, b) => s + (b.transactions_count || 0), 0);
+  const gas  = blocks.reduce((s, b) => s + (b.gas_used || 0), 0);
+
+  $('s-blocks').textContent = loc(n);
+  $('s-txs').textContent    = loc(txs);
+  $('s-avg').textContent    = n > 0 ? (txs / n).toFixed(1) : '—';
+  $('s-gas').textContent    = n > 0 ? fmtGas(Math.round(gas / n)) : '—';
+  $('s-latest').textContent = n > 0 ? '#' + loc(blocks[0].number) : '—';
+  blockCount.textContent    = `${n} / ${MAX_BLOCKS}`;
+}
+
+// ── Block list ────────────────────────────────────────────────────────────
+function makeRow(block, idx) {
   const el = document.createElement('div');
   el.className = 'block-row';
   el.dataset.idx = idx;
 
-  const txCount = block.transactions_count;
+  const tx  = block.transactions_count;
+  const pct = block.gas_used_pct ?? 0;
+  const gc  = gasClass(pct);
+
   el.innerHTML = `
-    <div class="block-num">#${block.number.toLocaleString()}</div>
-    <div class="block-tx-badge ${txCount === 0 ? 'zero' : ''}">${txCount} TX</div>
-    <div class="block-time" title="${block.hash}">${shortHash(block.hash)}</div>
+    <div class="block-num">#${loc(block.number)}</div>
+    <div class="block-tx-badge ${tx === 0 ? 'zero' : ''}">${tx} TX</div>
+    <div class="block-gas-mini" style="color:${gc==='high'?'var(--red)':gc==='mid'?'var(--amber)':'var(--text-dark)'}">${pct}%</div>
   `;
-  el.addEventListener('click', () => selectBlock(idx));
+  el.addEventListener('click', () => selectBlock(parseInt(el.dataset.idx)));
   return el;
 }
 
 function rebuildList() {
   blockList.innerHTML = '';
-  blocks.forEach((b, i) => {
-    blockList.appendChild(renderBlockRow(b, i));
-  });
-  updateSelection();
+  blocks.forEach((b, i) => blockList.appendChild(makeRow(b, i)));
+  syncActive();
 }
 
-function prependRow(block, idx) {
-  const el = renderBlockRow(block, idx, true);
-  blockList.insertBefore(el, blockList.firstChild);
-  Array.from(blockList.children).forEach((row, ri) => {
-    row.dataset.idx = ri;
-    row.onclick = () => selectBlock(ri);
-  });
-}
-
-function updateStats() {
-  const n = blocks.length;
-  statBlocks.textContent = n.toLocaleString();
-
-  totalTxs = blocks.reduce((s, b) => s + (b.transactions_count || 0), 0);
-  statTxs.textContent = totalTxs.toLocaleString();
-  statAvg.textContent = n > 0 ? (totalTxs / n).toFixed(1) : '—';
-
-  if (n > 0) {
-    statLatest.textContent = '#' + blocks[0].number.toLocaleString();
-  }
-
-  blockCount.textContent = `${n} / ${MAX_BLOCKS}`;
-}
-
-function updateSelection() {
-  Array.from(blockList.children).forEach(row => {
-    row.classList.toggle('active', parseInt(row.dataset.idx) === selectedIdx);
+function prependRow(block) {
+  if (blockList.children.length >= MAX_BLOCKS)
+    blockList.removeChild(blockList.lastChild);
+  blockList.insertBefore(makeRow(block, 0), blockList.firstChild);
+  Array.from(blockList.children).forEach((r, i) => {
+    r.dataset.idx = i;
+    r.onclick = () => selectBlock(i);
   });
 }
 
-// Zmodyfikowana funkcja selectBlock obsługująca style aktywnego wiersza
+function syncActive() {
+  Array.from(blockList.children).forEach(r =>
+    r.classList.toggle('active', parseInt(r.dataset.idx) === selectedIdx));
+}
+
+// ── Detail view ───────────────────────────────────────────────────────────
 function selectBlock(idx) {
   selectedIdx = idx;
-  updateSelection();
+  syncActive();
   renderDetail(blocks[idx]);
 }
 
-function renderDetail(block) {
-  detailContent.innerHTML = `
-    <div class="section-title">Szczegóły bloku</div>
+function renderDetail(b) {
+  detailEmpty.style.display = 'none';
+  detailBody.style.display  = 'block';
 
-    <div class="detail-grid">
-      <div class="detail-card">
-        <div class="detail-label">Numer bloku</div>
-        <div class="detail-card-val">#${block.number.toLocaleString()}</div>
+  const pct  = b.gas_used_pct ?? 0;
+  const gc   = gasClass(pct);
+  const lc   = latClass(b.fetch_latency_ms);
+
+  detailBody.innerHTML = `
+
+    <!-- Blok: główne dane -->
+    <div class="section-title">Dane bloku</div>
+    <div class="kpi-grid col4" style="margin-bottom:20px">
+      <div class="kpi-card">
+        <div class="kpi-label">Numer bloku</div>
+        <div class="kpi-val accent">#${loc(b.number)}</div>
       </div>
-      <div class="detail-card">
-        <div class="detail-label">Transakcje</div>
-        <div class="detail-card-val green">${block.transactions_count.toLocaleString()}</div>
+      <div class="kpi-card">
+        <div class="kpi-label">Transakcje</div>
+        <div class="kpi-val green">${loc(b.transactions_count)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Latencja pobr.</div>
+        <div class="kpi-val ${lc}">${mono(b.fetch_latency_ms)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Rozmiar bloku</div>
+        <div class="kpi-val purple">${fmtBytes(b.size_bytes)}</div>
+        <div class="kpi-sub">${loc(b.size_bytes)} B</div>
       </div>
     </div>
 
-    <div class="detail-label">Pełny Hash bloku</div>
-    <div class="detail-value hash">${block.hash}</div>
+    <!-- Timestamp -->
+    <div class="kpi-grid col2" style="margin-bottom:20px">
+      <div class="kpi-card">
+        <div class="kpi-label">Timestamp (Unix)</div>
+        <div class="kpi-val" style="font-size:16px">${b.timestamp ?? '—'}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Data i godzina</div>
+        <div class="kpi-val" style="font-size:15px">${fmtTs(b.timestamp)}</div>
+      </div>
+    </div>
 
-    <div class="detail-label">Skrócony hash</div>
-    <div class="detail-value">${shortHash(block.hash)}</div>
+    <!-- Gas -->
+    <div class="section-title">Zużycie gazu</div>
+    <div class="gas-section">
+      <div class="gas-header">
+        <span class="kpi-label" style="margin:0">Gas used / limit</span>
+        <span class="gas-pct ${gc === 'high' ? 'high' : gc === 'mid' ? 'mid' : 'low'}">${pct}%</span>
+      </div>
+      <div class="gas-bar-track">
+        <div class="gas-bar-fill ${gc}" style="width:${pct}%"></div>
+      </div>
+      <div class="gas-nums">
+        <span>${fmtGas(b.gas_used)} użyte</span>
+        <span>limit: ${fmtGas(b.gas_limit)}</span>
+      </div>
+    </div>
+
+    <div class="kpi-grid col2" style="margin-bottom:20px">
+      <div class="kpi-card">
+        <div class="kpi-label">Gas Used</div>
+        <div class="kpi-val" style="font-size:16px">${loc(b.gas_used)}</div>
+        <div class="kpi-sub">${fmtGas(b.gas_used)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gas Limit</div>
+        <div class="kpi-val" style="font-size:16px">${loc(b.gas_limit)}</div>
+        <div class="kpi-sub">${fmtGas(b.gas_limit)}</div>
+      </div>
+    </div>
+
+    <!-- Hash -->
+    <div class="section-title">Identyfikator bloku</div>
+    <div class="kpi-label" style="margin-bottom:6px">Pełny hash</div>
+    <div class="hash-box">${b.hash || '—'}</div>
+    <div class="kpi-grid col2" style="margin-bottom:24px">
+      <div class="kpi-card">
+        <div class="kpi-label">Skrócony hash</div>
+        <div style="font-family:var(--mono);font-size:13px;color:var(--accent-hover);margin-top:4px">${shortHash(b.hash)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Pierwsze 20 znaków</div>
+        <div style="font-family:var(--mono);font-size:13px;color:var(--text-muted);margin-top:4px">${b.hash ? b.hash.slice(0,22)+'…' : '—'}</div>
+      </div>
+    </div>
+
+    <!-- Latency chart -->
+    <div class="section-title">Historia latencji (ostatnie 20 bloków)</div>
+    <div class="spark-wrap" id="spark-wrap">
+      <div class="spark-empty" id="spark-empty">brak danych</div>
+    </div>
+
   `;
+
+  requestAnimationFrame(() => drawSparkline(latHistory));
 }
 
-// ── Block ingestion ────────────────────────────────────────────────────────
+// ── Sparkline ─────────────────────────────────────────────────────────────
+let sparkCanvas = null;
+
+function drawSparkline(data) {
+  const wrap = $('spark-wrap');
+  if (!wrap) return;
+
+  const emptyMsg = $('spark-empty');
+  if (!data || data.length < 2) {
+    if (emptyMsg) emptyMsg.style.display = 'flex';
+    return;
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  if (!sparkCanvas) {
+    sparkCanvas = document.createElement('canvas');
+    sparkCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+  }
+  if (!sparkCanvas.parentNode) wrap.appendChild(sparkCanvas);
+
+  const dpr = window.devicePixelRatio || 1;
+  const W   = wrap.clientWidth;
+  const H   = wrap.clientHeight;
+  sparkCanvas.width  = W * dpr;
+  sparkCanvas.height = H * dpr;
+  sparkCanvas.style.width  = W + 'px';
+  sparkCanvas.style.height = H + 'px';
+
+  const ctx = sparkCanvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // background
+  ctx.fillStyle = '#1f2937';
+  ctx.fillRect(0, 0, W, H);
+
+  const pad  = { t: 8, b: 20, l: 8, r: 8 };
+  const cW   = W - pad.l - pad.r;
+  const cH   = H - pad.t - pad.b;
+  const maxV = Math.max(...data) * 1.12 || 1;
+
+  // grid
+  ctx.strokeStyle = 'rgba(255,255,255,.05)';
+  ctx.lineWidth = 1;
+  [.25, .5, .75, 1].forEach(f => {
+    const y = pad.t + cH * (1 - f);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  });
+
+  // axis labels
+  ctx.fillStyle  = 'rgba(255,255,255,.25)';
+  ctx.font       = `9px 'IBM Plex Mono', monospace`;
+  ctx.textAlign  = 'left';
+  ctx.fillText('0', pad.l + 2, H - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(maxV) + ' ms', W - pad.r - 2, H - 4);
+
+  // points
+  const pts = data.map((v, i) => ({
+    x: pad.l + (i / (data.length - 1)) * cW,
+    y: pad.t + cH * (1 - v / maxV),
+  }));
+
+  // fill
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    const mx = (pts[i-1].x + pts[i].x) / 2;
+    ctx.bezierCurveTo(mx, pts[i-1].y, mx, pts[i].y, pts[i].x, pts[i].y);
+  }
+  ctx.lineTo(pts[pts.length-1].x, pad.t + cH);
+  ctx.lineTo(pts[0].x, pad.t + cH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(59,130,246,.18)';
+  ctx.fill();
+
+  // line
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    const mx = (pts[i-1].x + pts[i].x) / 2;
+    ctx.bezierCurveTo(mx, pts[i-1].y, mx, pts[i].y, pts[i].x, pts[i].y);
+  }
+  ctx.strokeStyle = '#3b82f6';
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+
+  // last point dot
+  const lp = pts[pts.length - 1];
+  ctx.beginPath();
+  ctx.arc(lp.x, lp.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#3b82f6';
+  ctx.fill();
+}
+
+function redrawSparkIfOpen() {
+  if (selectedIdx !== null && $('spark-wrap')) {
+    requestAnimationFrame(() => drawSparkline(latHistory));
+  }
+}
+
+// ── Block ingestion ───────────────────────────────────────────────────────
 function addBlock(block) {
   if (blocks.length > 0 && blocks[0].number === block.number) return;
-
   blocks.unshift(block);
   if (blocks.length > MAX_BLOCKS) blocks.pop();
-
-  if (blockList.children.length > 0) {
-    if (blockList.children.length >= MAX_BLOCKS) {
-      blockList.removeChild(blockList.lastChild);
-    }
-    prependRow(block, 0);
-  } else {
-    blockList.appendChild(renderBlockRow(block, 0));
-  }
-
   if (selectedIdx !== null) selectedIdx++;
-
-  updateStats();
-  updateSelection();
+  prependRow(block);
+  updateFooter();
+  syncActive();
   lastUpdate.textContent = new Date().toLocaleTimeString('pl-PL');
-  showToast(`Nowy blok #${block.number.toLocaleString()} — ${block.transactions_count} TX`);
+  showToast(`Nowy blok #${loc(block.number)} — ${block.transactions_count} TX`, 'var(--green)');
 }
 
-function loadHistory(data) {
+function loadHistory(data, perfSnap) {
   blocks = [...data].reverse().slice(0, MAX_BLOCKS);
   rebuildList();
-  updateStats();
-  if (blocks.length > 0) {
+  updateFooter();
+  if (perfSnap) updatePerf(perfSnap);
+  if (blocks.length > 0)
     lastUpdate.textContent = new Date().toLocaleTimeString('pl-PL');
-  }
 }
 
-// ── WebSocket ──────────────────────────────────────────────────────────────
+// ── WebSocket ─────────────────────────────────────────────────────────────
 function connect() {
   ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => {
-    setConnected(true);
-    console.log('[WS] Connected');
-  };
+  ws.onopen = () => setConnected(true);
 
   ws.onmessage = (evt) => {
     try {
       const msg = JSON.parse(evt.data);
       if (msg.type === 'history') {
-        loadHistory(msg.data);
+        loadHistory(msg.data, msg.perf);
       } else if (msg.type === 'block') {
         addBlock(msg.data);
+      } else if (msg.type === 'perf') {
+        updatePerf(msg.data);
       }
-    } catch (e) {
-      console.error('[WS] Parse error', e);
-    }
+    } catch (e) { console.error('[WS]', e); }
   };
 
   ws.onclose = () => {
     setConnected(false);
-    console.log('[WS] Disconnected, retrying in 3s...');
     setTimeout(connect, 3000);
   };
-
-  ws.onerror = (e) => {
-    console.error('[WS] Error', e);
-  };
+  ws.onerror = e => console.error('[WS] error', e);
 }
 
 connect();
