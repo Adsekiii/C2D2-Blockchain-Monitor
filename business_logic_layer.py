@@ -1,11 +1,20 @@
 import asyncio
+import asyncio
 from decimal import Decimal
 
 from access_layer import BlockchainAccess
 from config import AppConfig
 
 
+from access_layer import BlockchainAccess
+from config import AppConfig
+
+
 class BlockchainLogic:
+    def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig, filters=None):
+        self.access = access
+        self.reporter = reporter
+        self.app = app_config
     def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig, filters=None):
         self.access = access
         self.reporter = reporter
@@ -34,6 +43,12 @@ class BlockchainLogic:
             for f in self.filters
         )
 
+    # -------------------------
+    # Data processing
+    # -------------------------
+
+    def process_block_data(self, block) -> dict:
+        tx_count = len(block["transactions"])
     # -------------------------
     # Data processing
     # -------------------------
@@ -84,6 +99,7 @@ class BlockchainLogic:
             "amount_eth": eth_amount,
             "gas_used": gas_used,
             "gas_price_wei": gas_price,
+            "fee_eth": total_cost_eth,
             "fee_eth": total_cost_eth,
         }
 
