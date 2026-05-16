@@ -20,10 +20,8 @@ class ConsoleReporter:
         log_filename = f"logs/{timestamp}.log"
         self.csv_filename = f"logs/csv/{timestamp}.csv"
 
-        self.logger = logging.getLogger(
-            f"ConsoleReporter_{timestamp}"
-        )
-
+        # Unique logger name prevents handler duplication across multiple instances
+        self.logger = logging.getLogger(f"ConsoleReporter_{timestamp}")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
 
@@ -48,17 +46,16 @@ class ConsoleReporter:
                 "ETH_amount",
                 "Gas_used",
                 "Gas_price",
-                "ETH_fee"
+                "ETH_fee",
             ])
 
-    def report_connection_status(self, is_connected):
+    def report_connection_status(self, is_connected: bool) -> None:
         if is_connected:
             self.logger.info("Connected to Sepolia!")
         else:
             self.logger.info("Error occured while connecting to Sepolia...")
 
-
-    def report_block(self, block_data, iteration):
+    def report_block(self, block_data: dict, iteration) -> None:
         self.logger.info("=========================================================")
         self.logger.info(f"Fetching block nr {iteration}:")
         self.logger.info(f"Block number: {block_data['number']}")
@@ -66,8 +63,7 @@ class ConsoleReporter:
         self.logger.info(f"Block Hash: {block_data['hash']}")
         self.total_blocks_processed += 1
 
-
-    def report_transaction(self, tx_data, block_number):
+    def report_transaction(self, tx_data: dict, block_number: int) -> None:
         self.logger.info(f"=====Details of last transaction for block {block_number}=====")
         self.logger.info(f"TX Hash: {tx_data['hash']}")
         self.logger.info(f"Sender: {tx_data['sender']}")
@@ -77,30 +73,31 @@ class ConsoleReporter:
         self.logger.info(f"Gas price: {tx_data['gas_price_wei']} Wei")
         self.logger.info(f"Fee: {tx_data['fee_eth']} ETH")
         self.total_txs_processed += 1
-        self.total_amount_eth += tx_data['amount_eth']
-        self.total_gas_used += tx_data['gas_used']
-        self.total_gas_price_wei += tx_data['gas_price_wei']
-        self.total_fee_eth += tx_data['fee_eth']
+        self.total_amount_eth += tx_data["amount_eth"]
+        self.total_gas_used += tx_data["gas_used"]
+        self.total_gas_price_wei += tx_data["gas_price_wei"]
+        self.total_fee_eth += tx_data["fee_eth"]
 
         with open(self.csv_filename, mode="a", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow([
                 block_number,
-                tx_data['hash'],
-                tx_data['sender'],
-                tx_data['receiver'],
-                tx_data['amount_eth'],
-                tx_data['gas_used'],
-                tx_data['gas_price_wei'],
-                tx_data['fee_eth']
+                tx_data["hash"],
+                tx_data["sender"],
+                tx_data["receiver"],
+                tx_data["amount_eth"],
+                tx_data["gas_used"],
+                tx_data["gas_price_wei"],
+                tx_data["fee_eth"],
             ])
 
-
-    def report_no_transactions(self):
+    def report_no_transactions(self) -> None:
         self.logger.info("This block does not have any transactions registered")
 
+    def report_filtered_transaction(self) -> None:
+        self.logger.info("Transaction filtered out")
 
-    def print_final_summary(self):
+    def print_final_summary(self) -> None:
         self.logger.info("\n=== SUMMARY REPORT ===")
         self.logger.info(f"Blocks processed: {self.total_blocks_processed}")
         self.logger.info(f"Transactions processed: {self.total_txs_processed}")

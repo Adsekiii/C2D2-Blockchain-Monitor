@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=".secret")
 
-@dataclass 
+
+@dataclass
 class ConnConfig:
     https_url: str = "https://eth-sepolia.g.alchemy.com/v2/"
     wss_url: str = "wss://eth-sepolia.g.alchemy.com/v2/"
@@ -12,8 +13,14 @@ class ConnConfig:
 
     @property
     def get_https_url(self) -> str:
-        return f"{self.https_url}{self.api_key}" 
+        return f"{self.https_url}{self.api_key}"
 
     @property
     def get_wss_url(self) -> str:
-        return f"{self.wss_url}{self.api_key}" 
+        return f"{self.wss_url}{self.api_key}"
+
+
+@dataclass
+class AppConfig:
+    blocks_to_fetch: int = 10   # number of historical blocks to load on startup
+    reconnect_delay: int = 5    # seconds to wait before WebSocket reconnect

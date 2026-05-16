@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QCheckBox
 
 from access_layer import BlockchainAccess
 from business_logic_layer import BlockchainLogic
+from config import ConnConfig, AppConfig
 from reporting_layer import ConsoleReporter
 
 
@@ -316,24 +317,36 @@ QFrame#divider {{
 # ─────────────────────────────────────────────
 
 class MonitorWorker(QThread):
-    block_received    = pyqtSignal(dict)
-    tx_received       = pyqtSignal(dict, int)
-    tx_filtered       = pyqtSignal(int)
-    no_tx_in_block    = pyqtSignal(int)
-    connected         = pyqtSignal(bool)
-    error_occurred    = pyqtSignal(str)
-    live_analytics    = pyqtSignal(dict)
-    monitoring_done   = pyqtSignal(dict)
-    status_msg        = pyqtSignal(str)
+    """
+    Runs the blockchain monitor in a background thread.
 
-    def __init__(self, filters, block_count=10, initial_blocks=0, endless=False):
+    Pipeline:
+      1. Connect via HTTP (BlockchainAccess) and verify connectivity.
+      2. Fetch `initial_blocks` historical blocks via HTTP (fetch_latest_blocks).
+      3. Subscribe to newHeads via WebSocket (subscribe_new_heads) – runs until
+         stopped or (when not endless) `block_count` live blocks are received.
+
+    All signals are emitted from within the async loop and are safe to connect
+    to Qt slots on the main thread because QThread / pyqtSignal queues them.
+    """
+
+    block_received  = pyqtSignal(dict)
+    tx_received     = pyqtSignal(dict, int)
+    tx_filtered     = pyqtSignal(int)
+    no_tx_in_block  = pyqtSignal(int)
+    connected       = pyqtSignal(bool)
+    error_occurred  = pyqtSignal(str)
+    live_analytics  = pyqtSignal(dict)
+    monitoring_done = pyqtSignal(dict)
+    status_msg      = pyqtSignal(str)
+
+    def __init__(self, filters, block_count=10, initial_blocks=10, endless=False):
         super().__init__()
-        self.filters = filters
-        self.block_count = block_count
+        self.filters       = filters
+        self.block_count   = block_count
         self.initial_blocks = initial_blocks
-        self.endless = endless
-        self._stop_event = threading.Event()
-        self.reporter = ConsoleReporter()
+        self.endless       = endless
+        self._stop_event   = threading.Event()
 
     def stop(self):
         self._stop_event.set()
@@ -341,110 +354,155 @@ class MonitorWorker(QThread):
     def run(self):
         asyncio.run(self._monitor())
 
+    # ------------------------------------------------------------------
+    # Internal helpers that bridge BlockchainLogic callbacks → Qt signals
+    # ------------------------------------------------------------------
+
+    def _make_reporter_bridge(self, logic):
+        """
+        Returns a lightweight object whose interface matches ConsoleReporter
+        but also fires the Qt signals this worker exposes.  It wraps a real
+        ConsoleReporter so logging / CSV writing still works.
+        """
+        real = ConsoleReporter()
+        worker = self
+
+        class _Bridge:
+            # Forward logger so BlockchainLogic can call reporter.logger.*
+            logger = real.logger
+
+            def report_connection_status(self, ok):
+                real.report_connection_status(ok)
+
+            def report_block(self, block_data, iteration):
+                real.report_block(block_data, iteration)
+                worker.block_received.emit(block_data)
+                worker.live_analytics.emit(logic.get_live_analytics())
+
+            def report_transaction(self, tx_data, block_number):
+                real.report_transaction(tx_data, block_number)
+                worker.tx_received.emit(tx_data, block_number)
+
+            def report_filtered_transaction(self):
+                real.report_filtered_transaction()
+                # We don't know the block number here; emit 0 as sentinel
+                worker.tx_filtered.emit(0)
+
+            def report_no_transactions(self):
+                real.report_no_transactions()
+                worker.no_tx_in_block.emit(0)
+
+            def print_final_summary(self):
+                real.print_final_summary()
+
+        return _Bridge()
+
+    # ------------------------------------------------------------------
+    # Main async entry point
+    # ------------------------------------------------------------------
+
     async def _monitor(self):
         try:
-            async with BlockchainAccess() as access:
-                logic = BlockchainLogic(access.w3, filters=self.filters)
-                is_connected = await access.connect()
-                self.connected.emit(is_connected)
-                self.reporter.report_connection_status(is_connected)
+            conn_cfg = ConnConfig()
+            # Override blocks_to_fetch with the value chosen in the GUI
+            app_cfg  = AppConfig(blocks_to_fetch=self.initial_blocks)
 
-                if not is_connected:
-                    return
+            access = BlockchainAccess(conn_cfg, app_cfg)
 
-                # 🚀 KROK 1: ŁADOWANIE BLOKÓW HISTORYCZNYCH (Initial Blocks)
-                if self.initial_blocks > 0:
-                    self.status_msg.emit(f"📥 Loading {self.initial_blocks} history blocks...")
-                    try:
-                        latest_raw = await access.get_latest_block()
-                        latest_num = latest_raw['number']
-                        
-                        # Ustalamy zakres bloków od najstarszego wstecz do bieżącego
-                        start_num = max(0, latest_num - self.initial_blocks + 1)
-                        
-                        for b_num in range(start_num, latest_num + 1):
-                            if self._stop_event.is_set():
-                                break
-                                
-                            self.status_msg.emit(f"📥 Fetching history block #{b_num}...")
-                            # Pobieramy konkretny blok po numerze
-                            block = await access.w3.eth.get_block(b_num)
-                            
-                            processed_block = logic.process_block_data(block)
-                            self.reporter.report_block(processed_block, b_num)
-                            self.block_received.emit(processed_block)
+            # --- connectivity check ---
+            is_connected = access.is_connected()
+            self.connected.emit(is_connected)
 
-                            if processed_block['transactions_count'] > 0:
-                                latest_tx_hash = block['transactions'][-1]
-                                raw_tx = await access.get_transaction(latest_tx_hash)
-                                raw_receipt = await access.get_transaction_receipt(latest_tx_hash)
-                                processed_tx = logic.process_transaction_data(raw_tx, raw_receipt)
+            if not is_connected:
+                self.status_msg.emit("❌ Cannot connect – check API key / URL")
+                return
 
-                                if processed_tx:
-                                    self.reporter.report_transaction(processed_tx, processed_block['number'])
-                                    self.tx_received.emit(processed_tx, processed_block['number'])
-                                else:
-                                    self.tx_filtered.emit(processed_block['number'])
-                            else:
-                                self.reporter.report_no_transactions()
-                                self.no_tx_in_block.emit(processed_block['number'])
-                                
-                            self.live_analytics.emit(logic.get_live_analytics())
-                            await asyncio.sleep(0.2) # Małe opóźnienie, by interfejs oddychał
-                            
-                    except Exception as hist_err:
-                        print(f"History loading warning: {hist_err}")
+            # We need logic before building the bridge so the bridge can
+            # call logic.get_live_analytics().  Reporter is set after.
+            logic = BlockchainLogic(
+                access=access,
+                reporter=None,          # placeholder; set below
+                app_config=app_cfg,
+                filters=self.filters,
+            )
+            reporter = self._make_reporter_bridge(logic)
+            logic.reporter = reporter   # wire up
 
-                # 🚀 KROK 2: MONITOROWANIE NA ŻYWO NOWYCH BLOKÓW
-                self.status_msg.emit("👀 Listening for new live blocks...")
-                
-                # Pobieramy najświeższy numer początkowy po załadowaniu historii
-                try:
-                    last_b = await access.get_latest_block()
-                    latest_block = last_b['number']
-                except:
-                    latest_block = 0
+            reporter.report_connection_status(is_connected)
 
-                i = 0
-                while (self.endless or i < self.block_count) and not self._stop_event.is_set():
-                    raw_block = await access.get_latest_block()
-                    while raw_block['number'] == latest_block and not self._stop_event.is_set():
-                        await asyncio.sleep(1)
-                        raw_block = await access.get_latest_block()
+            # ── STEP 1: historical blocks ──────────────────────────────
+            if self.initial_blocks > 0:
+                self.status_msg.emit(
+                    f"📥 Loading {self.initial_blocks} historical blocks..."
+                )
+                await logic.fetch_latest_blocks(self.initial_blocks)
 
-                    if self._stop_event.is_set():
-                        break
-
-                    latest_block = raw_block['number']
-                    processed_block = logic.process_block_data(raw_block)
-                    self.reporter.report_block(processed_block, i + 1)
-                    self.block_received.emit(processed_block)
-
-                    if processed_block['transactions_count'] > 0:
-                        latest_tx_hash = raw_block['transactions'][-1]
-                        raw_tx = await access.get_transaction(latest_tx_hash)
-                        raw_receipt = await access.get_transaction_receipt(latest_tx_hash)
-                        processed_tx = logic.process_transaction_data(raw_tx, raw_receipt)
-
-                        if processed_tx:
-                            self.reporter.report_transaction(processed_tx, processed_block['number'])
-                            self.tx_received.emit(processed_tx, processed_block['number'])
-                        else:
-                            logic.increment_filtered_counter()
-                            self.tx_filtered.emit(processed_block['number'])
-                    else:
-                        self.reporter.report_no_transactions()
-                        self.no_tx_in_block.emit(processed_block['number'])
-
-                    self.live_analytics.emit(logic.get_live_analytics())
-                    i += 1
-                    await asyncio.sleep(2)
-
-                self.reporter.print_final_summary()
+            if self._stop_event.is_set():
+                reporter.print_final_summary()
                 self.monitoring_done.emit(logic.get_aggregated_stats())
+                return
 
-        except Exception as e:
-            self.error_occurred.emit(str(e))
+            # ── STEP 2: live subscription ──────────────────────────────
+            self.status_msg.emit("👀 Subscribed – listening for new blocks…")
+
+            if self.endless:
+                # Run until the user clicks Stop
+                await self._subscribe_until_stopped(logic, access, app_cfg)
+            else:
+                # Run until block_count live blocks have been processed
+                await self._subscribe_n_blocks(logic, access, app_cfg)
+
+            reporter.print_final_summary()
+            self.monitoring_done.emit(logic.get_aggregated_stats())
+
+        except Exception as exc:
+            self.error_occurred.emit(str(exc))
+
+    # ------------------------------------------------------------------
+    # Subscription helpers
+    # ------------------------------------------------------------------
+
+    async def _subscribe_until_stopped(self, logic, access, app_cfg):
+        """Drive subscribe_new_heads until _stop_event is set."""
+        sub_task = asyncio.create_task(logic.subscribe_new_heads())
+        while not self._stop_event.is_set():
+            await asyncio.sleep(0.5)
+        sub_task.cancel()
+        try:
+            await sub_task
+        except asyncio.CancelledError:
+            pass
+
+    async def _subscribe_n_blocks(self, logic, access, app_cfg):
+        """
+        Subscribe to newHeads and stop after exactly `block_count` live
+        blocks have been processed.
+        """
+        live_blocks_processed = 0
+        target = self.block_count
+        stop_event = self._stop_event
+
+        original_callback = logic._process_block_with_tx
+
+        async def counting_callback(block_num: int):
+            nonlocal live_blocks_processed
+            if stop_event.is_set():
+                return
+            await original_callback(block_num)
+            live_blocks_processed += 1
+            if live_blocks_processed >= target:
+                stop_event.set()
+
+        sub_task = asyncio.create_task(
+            access.subscribe_new_heads(counting_callback)
+        )
+        while not self._stop_event.is_set():
+            await asyncio.sleep(0.5)
+        sub_task.cancel()
+        try:
+            await sub_task
+        except asyncio.CancelledError:
+            pass
 
 
 # ─────────────────────────────────────────────
@@ -525,33 +583,21 @@ class BlockchainMonitorWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header bar
         root.addWidget(self._build_header())
-
-        # Stats row
         root.addWidget(self._build_stats_bar())
 
-        # Divider
         div = QFrame()
         div.setFrameShape(QFrame.Shape.HLine)
         div.setStyleSheet(f"background-color: {COLORS['border']}; max-height: 1px;")
         root.addWidget(div)
 
-        # Main content
         content = QHBoxLayout()
         content.setContentsMargins(12, 12, 12, 12)
         content.setSpacing(12)
-
-        # Left: tables and analytics
-        tabs_widget = self._build_tables_and_tabs()
-        content.addWidget(tabs_widget, stretch=1)
-
-        # Right: filters/controls panel
+        content.addWidget(self._build_tables_and_tabs(), stretch=1)
         content.addWidget(self._build_controls(), stretch=0)
-
         root.addLayout(content)
 
-        # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self._set_status("Ready to connect", COLORS['text_secondary'])
@@ -601,11 +647,11 @@ class BlockchainMonitorWindow(QMainWindow):
         layout.setContentsMargins(16, 8, 16, 8)
         layout.setSpacing(10)
 
-        self.stat_blocks  = StatCard("Blocks",        "0",   COLORS['accent'])
-        self.stat_txs     = StatCard("Transactions",   "0",   COLORS['accent_green'])
-        self.stat_flt     = StatCard("Filtered",       "0",   COLORS['accent_yellow'])
-        self.stat_eth     = StatCard("Total ETH",      "0.000000", COLORS['accent_purple'])
-        self.stat_gas     = StatCard("Total Gas",      "0",   "#f0883e")
+        self.stat_blocks = StatCard("Blocks",       "0",        COLORS['accent'])
+        self.stat_txs    = StatCard("Transactions", "0",        COLORS['accent_green'])
+        self.stat_flt    = StatCard("Filtered",     "0",        COLORS['accent_yellow'])
+        self.stat_eth    = StatCard("Total ETH",    "0.000000", COLORS['accent_purple'])
+        self.stat_gas    = StatCard("Total Gas",    "0",        "#f0883e")
 
         for card in [self.stat_blocks, self.stat_txs, self.stat_flt, self.stat_eth, self.stat_gas]:
             layout.addWidget(card)
@@ -613,7 +659,7 @@ class BlockchainMonitorWindow(QMainWindow):
         return bar
 
     def _build_tables_and_tabs(self):
-        tabs = QTabWidget()
+        self.tabs_widget = QTabWidget()
 
         # ── Blocks tab ──
         blocks_widget = QWidget()
@@ -621,9 +667,7 @@ class BlockchainMonitorWindow(QMainWindow):
         bv.setContentsMargins(0, 8, 0, 0)
         bv.setSpacing(6)
 
-        # Nagłówek dla bloków (Tytuł + Szukajka w jednej linii)
         block_header_layout = QHBoxLayout()
-        
         blocks_label = QLabel("BLOCKS HISTORY")
         blocks_label.setObjectName("section_title")
         block_header_layout.addWidget(blocks_label)
@@ -633,17 +677,14 @@ class BlockchainMonitorWindow(QMainWindow):
         self.blocks_search.setFixedWidth(200)
         self.blocks_search.textChanged.connect(self._filter_blocks_table)
         block_header_layout.addWidget(self.blocks_search)
-        
-        bv.addLayout(block_header_layout)
 
-        self.blocks_table = self._make_table([
-            "BLOCK NUMBER",
-            "HASH",
-            "TRANSACTIONS",
-            "TIMESTAMP"
-        ], [170, 480, 170, 50])
+        bv.addLayout(block_header_layout)
+        self.blocks_table = self._make_table(
+            ["BLOCK NUMBER", "HASH", "TRANSACTIONS", "TIMESTAMP"],
+            [170, 480, 170, 50],
+        )
         bv.addWidget(self.blocks_table)
-        tabs.addTab(blocks_widget, "📦  Blocks")
+        self.tabs_widget.addTab(blocks_widget, "📦  Blocks")
 
         # ── Transactions tab ──
         tx_widget = QWidget()
@@ -652,31 +693,24 @@ class BlockchainMonitorWindow(QMainWindow):
         tv.setSpacing(6)
 
         tx_header_layout = QHBoxLayout()
-
         tx_label = QLabel("TRANSACTIONS (RECENT FROM EACH BLOCK)")
         tx_label.setObjectName("section_title")
         tx_header_layout.addWidget(tx_label)
 
         self.tx_search = QLineEdit()
-        self.tx_search.setPlaceholderText("🔍 Search by block number")
+        self.tx_search.setPlaceholderText("🔍 Search by block / hash")
         self.tx_search.setFixedWidth(200)
         self.tx_search.textChanged.connect(self._filter_tx_table)
         tx_header_layout.addWidget(self.tx_search)
-        
-        tv.addLayout(tx_header_layout)
 
-        self.tx_table = self._make_table([
-            "BLOCK",
-            "TX HASH",
-            "SENDER",
-            "RECEIVER",
-            "ETH",
-            "GAS USED",
-            "GAS PRICE",
-            "ETH FEE"
-        ], [80, 240, 180, 180, 100, 100, 120, 120])
+        tv.addLayout(tx_header_layout)
+        self.tx_table = self._make_table(
+            ["BLOCK", "TX HASH", "SENDER", "RECEIVER", "ETH",
+             "GAS USED", "GAS PRICE", "ETH FEE"],
+            [80, 240, 180, 180, 100, 100, 120, 120],
+        )
         tv.addWidget(self.tx_table)
-        tabs.addTab(tx_widget, "🔄  Transactions")
+        self.tabs_widget.addTab(tx_widget, "🔄  Transactions")
 
         # ── Analytics tab ──
         analytics_widget = QWidget()
@@ -688,38 +722,38 @@ class BlockchainMonitorWindow(QMainWindow):
         analytics_label.setObjectName("section_title")
         av.addWidget(analytics_label)
 
-        self.analytics_table = self._make_table([
-            "METRIC / AGGREGATION", 
-            "LIVE VALUE"
-        ], [400, 200])
-        
-        # Inicjalizacja stałych wierszy metryk
+        self.analytics_table = self._make_table(
+            ["METRIC / AGGREGATION", "LIVE VALUE"],
+            [400, 200],
+        )
+
         self.metric_keys = [
-            ("Average Block Time", "avg_block_time"),
-            ("Average Fee per Transaction", "avg_fee_tx"),
-            ("Average Transferred ETH per TX", "avg_eth_tx"),
-            ("Average Transactions per Block", "avg_tx_per_block"),
-            ("Average Gas used per Block", "avg_gas_per_block"),
-            ("Total Fee Pool Captured", "total_fees_pool"),
-            ("Unique Senders Active", "unique_senders"),
-            ("Unique Receivers Active", "unique_receivers")
+            ("Average Block Time",              "avg_block_time"),
+            ("Average Fee per Transaction",     "avg_fee_tx"),
+            ("Average Transferred ETH per TX",  "avg_eth_tx"),
+            ("Average Transactions per Block",  "avg_tx_per_block"),
+            ("Average Gas used per Block",      "avg_gas_per_block"),
+            ("Total Fee Pool Captured",         "total_fees_pool"),
+            ("Unique Senders Active",           "unique_senders"),
+            ("Unique Receivers Active",         "unique_receivers"),
         ]
-        
+
         self.analytics_table.setRowCount(len(self.metric_keys))
         for row, (label, _) in enumerate(self.metric_keys):
             lbl_item = QTableWidgetItem(label)
             lbl_item.setFont(QFont("JetBrains Mono", 11, QFont.Weight.Bold))
             val_item = QTableWidgetItem("0.00")
             val_item.setForeground(QColor(COLORS['accent']))
-            val_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            
+            val_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             self.analytics_table.setItem(row, 0, lbl_item)
             self.analytics_table.setItem(row, 1, val_item)
-            
-        av.addWidget(self.analytics_table)
-        tabs.addTab(analytics_widget, "📊  Analytics")
 
-        return tabs
+        av.addWidget(self.analytics_table)
+        self.tabs_widget.addTab(analytics_widget, "📊  Analytics")
+
+        return self.tabs_widget
 
     def _make_table(self, headers, col_widths):
         table = QTableWidget()
@@ -732,13 +766,10 @@ class BlockchainMonitorWindow(QMainWindow):
         table.verticalHeader().setVisible(False)
         table.setWordWrap(False)
         table.setSortingEnabled(False)
-
         for i, w in enumerate(col_widths):
             table.setColumnWidth(i, w)
-
         table.horizontalHeader().setStretchLastSection(True)
         table.verticalHeader().setDefaultSectionSize(30)
-
         return table
 
     def _build_controls(self):
@@ -755,7 +786,6 @@ class BlockchainMonitorWindow(QMainWindow):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(14)
 
-        # ── Start/Stop ──
         ctrl_lbl = QLabel("CONTROL PANEL")
         ctrl_lbl.setObjectName("section_title")
         layout.addWidget(ctrl_lbl)
@@ -779,15 +809,14 @@ class BlockchainMonitorWindow(QMainWindow):
         self.clear_btn.clicked.connect(self._clear_tables)
         layout.addWidget(self.clear_btn)
 
-        # Divider
         div = QFrame()
         div.setFrameShape(QFrame.Shape.HLine)
         div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
         layout.addWidget(div)
 
-        # ── 🚀 PODWÓJNE POLE: BLOCKS AMOUNT & INITIAL BLOCKS ──
+        # ── Block count + initial blocks ──
         blocks_config_row = QHBoxLayout()
-        
+
         blk_grp = QGroupBox("BLOCKS LIVE")
         blk_lyt = QVBoxLayout(blk_grp)
         self.block_count_spin = QDoubleSpinBox()
@@ -796,9 +825,11 @@ class BlockchainMonitorWindow(QMainWindow):
         self.block_count_spin.setValue(10)
         self.block_count_spin.setStyleSheet("font-size: 11px;")
         blk_lyt.addWidget(self.block_count_spin)
-        
+
         self.endless_checkbox = QCheckBox("Listen endlessly")
-        self.endless_checkbox.toggled.connect(lambda checked: self.block_count_spin.setDisabled(checked))
+        self.endless_checkbox.toggled.connect(
+            lambda checked: self.block_count_spin.setDisabled(checked)
+        )
         blk_lyt.addWidget(self.endless_checkbox)
 
         init_grp = QGroupBox("INITIAL BACK")
@@ -806,10 +837,10 @@ class BlockchainMonitorWindow(QMainWindow):
         self.initial_blocks_spin = QDoubleSpinBox()
         self.initial_blocks_spin.setDecimals(0)
         self.initial_blocks_spin.setRange(0, 100)
-        self.initial_blocks_spin.setValue(10) # Domyślnie wgraj 10 ostatnich bloków
+        self.initial_blocks_spin.setValue(10)
         self.initial_blocks_spin.setStyleSheet("font-size: 11px;")
         init_lyt.addWidget(self.initial_blocks_spin)
-        
+
         blocks_config_row.addWidget(blk_grp)
         blocks_config_row.addWidget(init_grp)
         layout.addLayout(blocks_config_row)
@@ -853,9 +884,13 @@ class BlockchainMonitorWindow(QMainWindow):
         log_lyt = QVBoxLayout(log_grp)
         self.log_label = QLabel("—")
         self.log_label.setWordWrap(True)
-        self.log_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11px;")
+        self.log_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 11px;"
+        )
         self.log_label.setFixedHeight(120)
-        self.log_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.log_label.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
         log_lyt.addWidget(self.log_label)
         layout.addWidget(log_grp)
 
@@ -872,15 +907,12 @@ class BlockchainMonitorWindow(QMainWindow):
         self.setStyleSheet(STYLESHEET)
 
     def _on_filter_changed(self, idx):
-        address_filter = (idx == 8)
+        address_filter  = (idx == 8)
         spinbox_filters = idx in [1, 2, 3, 4]
         self.filter_address.setVisible(address_filter)
         self.filter_value_spin.setVisible(spinbox_filters)
 
-        prefixes = {
-            1: "Min Gwei: ", 2: "Min ETH: ",
-            3: "Min ETH: ", 4: "Min ETH: "
-        }
+        prefixes = {1: "Min Gwei: ", 2: "Min ETH: ", 3: "Min ETH: ", 4: "Min ETH: "}
         if idx in prefixes:
             self.filter_value_spin.setPrefix(prefixes[idx])
 
@@ -895,37 +927,20 @@ class BlockchainMonitorWindow(QMainWindow):
         text = text.strip().lower()
         for row in range(self.tx_table.rowCount()):
             block_item = self.tx_table.item(row, 0)
-            hash_item = self.tx_table.item(row, 1)
-            
-            show_row = False
-            if block_item and text in block_item.text().lower():
-                show_row = True
-            if hash_item and text in hash_item.text().lower():
-                show_row = True
-                
-            self.tx_table.setRowHidden(row, not show_row)
-
-    def _on_block_double_clicked(self, item):
-        if item.column() == 0:  # Kliknięcie w kolumnę z numerem bloku
-            block_num = item.text()
-            self.tx_search.setText(block_num)
-            self.tabs_widget.setCurrentIndex(1)
-
-    def _on_tx_double_clicked(self, item):
-        if item.column() == 0:  # Kliknięcie w kolumnę z numerem bloku
-            block_num = item.text()
-            self.blocks_search.setText(block_num)
-            self.tabs_widget.setCurrentIndex(0)
-
+            hash_item  = self.tx_table.item(row, 1)
+            show = (block_item and text in block_item.text().lower()) or \
+                   (hash_item  and text in hash_item.text().lower())
+            self.tx_table.setRowHidden(row, not show)
 
     def _get_selected_filters(self):
-        idx = self.filter_combo.currentIndex()
-        val = self.filter_value_spin.value()
+        idx  = self.filter_combo.currentIndex()
+        val  = self.filter_value_spin.value()
         addr = self.filter_address.text().strip()
 
         from filters import (
             GasPriceFilter, HighValueFilter, HighFeeFilter, WhaleTransactionFilter,
-            FailedTransactionFilter, ContractInteractionFilter, TokenTransferFilter, AddressFilter
+            FailedTransactionFilter, ContractInteractionFilter,
+            TokenTransferFilter, AddressFilter,
         )
 
         mapping = {
@@ -944,24 +959,23 @@ class BlockchainMonitorWindow(QMainWindow):
     # ──────────────── SLOTS: Control ────────────────
 
     def _start_monitoring(self):
-        if hasattr(self, 'worker') and self.worker is not None:
-            if self.worker.isRunning():
-                self.worker._stop_event.set()
-                self.worker.wait()
+        if self.worker is not None and self.worker.isRunning():
+            self.worker._stop_event.set()
+            self.worker.wait()
 
-        self.total_blocks = 0
-        self.total_txs = 0
+        # Reset counters
+        self.block_count   = 0
+        self.tx_count      = 0
         self.filtered_count = 0
-        self.total_eth = Decimal('0')
-        self.total_gas = 0
+        self.total_eth     = Decimal('0')
+        self.total_gas     = 0
         self._update_stats()
 
-        filters = self._get_selected_filters()
-        block_count = int(self.block_count_spin.value())
+        filters        = self._get_selected_filters()
+        block_count    = int(self.block_count_spin.value())
         initial_blocks = int(self.initial_blocks_spin.value())
-        is_endless = self.endless_checkbox.isChecked()
+        is_endless     = self.endless_checkbox.isChecked()
 
-        # Przekazujemy oba parametry konfiguracyjne do workera
         self.worker = MonitorWorker(filters, block_count, initial_blocks, endless=is_endless)
         self.worker.block_received.connect(self._on_block)
         self.worker.tx_received.connect(self._on_tx)
@@ -972,15 +986,16 @@ class BlockchainMonitorWindow(QMainWindow):
         self.worker.live_analytics.connect(self._on_live_analytics)
         self.worker.status_msg.connect(self._on_status_msg)
         self.worker.monitoring_done.connect(self._on_done)
-
         self.worker.start()
+
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self._set_status("⏳ Connecting to Sepolia…", COLORS['accent_yellow'])
         self._log("Starting pipeline...")
         self.conn_status.setText("● Connecting…")
-        self.conn_status.setObjectName("status_connecting")
-        self.conn_status.setStyleSheet(f"color: {COLORS['accent_yellow']}; font-weight: 700;")
+        self.conn_status.setStyleSheet(
+            f"color: {COLORS['accent_yellow']}; font-weight: 700;"
+        )
 
     def _stop_monitoring(self):
         if self.worker:
@@ -994,16 +1009,13 @@ class BlockchainMonitorWindow(QMainWindow):
         self.tx_table.setRowCount(0)
         self.blocks_search.clear()
         self.tx_search.clear()
-        
-        # Reset zakładki analitycznej
         for row in range(self.analytics_table.rowCount()):
             self.analytics_table.item(row, 1).setText("0.00")
-            
-        self.block_count = 0
-        self.tx_count = 0
+        self.block_count    = 0
+        self.tx_count       = 0
         self.filtered_count = 0
-        self.total_eth = Decimal('0')
-        self.total_gas = 0
+        self.total_eth      = Decimal('0')
+        self.total_gas      = 0
         self._update_stats()
         self._log("Tables cleared.")
 
@@ -1013,21 +1025,23 @@ class BlockchainMonitorWindow(QMainWindow):
         self._set_status(text, COLORS['accent_yellow'])
 
     def _on_live_analytics(self, analytics_dict):
-        """Slot odbierający dane o agregacji i nanoszący je na trzecią zakładkę."""
         for row, (_, dict_key) in enumerate(self.metric_keys):
             if dict_key in analytics_dict:
-                val = analytics_dict[dict_key]
-                self.analytics_table.item(row, 1).setText(val)
+                self.analytics_table.item(row, 1).setText(analytics_dict[dict_key])
 
     def _on_connected(self, ok):
         if ok:
             self.conn_status.setText("● Connected")
-            self.conn_status.setStyleSheet(f"color: {COLORS['accent_green']}; font-weight: 700;")
+            self.conn_status.setStyleSheet(
+                f"color: {COLORS['accent_green']}; font-weight: 700;"
+            )
             self._set_status("✅ Connected to Sepolia", COLORS['accent_green'])
             self._log("✔ Connected to Sepolia!")
         else:
             self.conn_status.setText("● Connection Error")
-            self.conn_status.setStyleSheet(f"color: {COLORS['accent_red']}; font-weight: 700;")
+            self.conn_status.setStyleSheet(
+                f"color: {COLORS['accent_red']}; font-weight: 700;"
+            )
             self._set_status("❌ Connection Error", COLORS['accent_red'])
             self._log("✘ Cannot connect to Sepolia.")
             self._reset_buttons()
@@ -1045,10 +1059,10 @@ class BlockchainMonitorWindow(QMainWindow):
 
         tx_item = QTableWidgetItem(str(block_data['transactions_count']))
         tx_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        if block_data['transactions_count'] > 0:
-            tx_item.setForeground(QColor(COLORS['accent_green']))
-        else:
-            tx_item.setForeground(QColor(COLORS['text_muted']))
+        tx_item.setForeground(
+            QColor(COLORS['accent_green'] if block_data['transactions_count'] > 0
+                   else COLORS['text_muted'])
+        )
 
         time_item = QTableWidgetItem(datetime.now().strftime("%H:%M:%S"))
         time_item.setForeground(QColor(COLORS['text_secondary']))
@@ -1061,7 +1075,9 @@ class BlockchainMonitorWindow(QMainWindow):
         self.blocks_table.scrollToTop()
 
         self._update_stats()
-        self._log(f"📦 Block #{block_data['number']} • {block_data['transactions_count']} tx")
+        self._log(
+            f"📦 Block #{block_data['number']} • {block_data['transactions_count']} tx"
+        )
 
     def _on_tx(self, tx_data, block_number):
         self.tx_count += 1
@@ -1081,28 +1097,27 @@ class BlockchainMonitorWindow(QMainWindow):
 
         center = Qt.AlignmentFlag.AlignCenter
 
-        blk_item = cell(str(block_number), COLORS['accent'], center)
-        hash_item = cell(tx_data['hash'], COLORS['text_secondary'])
+        blk_item    = cell(str(block_number), COLORS['accent'], center)
+        hash_item   = cell(tx_data['hash'], COLORS['text_secondary'])
         hash_item.setToolTip(tx_data['hash'])
 
         sender_item = cell(tx_data['sender'], COLORS['accent_yellow'])
         sender_item.setToolTip(tx_data['sender'])
 
-        recv = tx_data['receiver'] or "—"
-        recv_short = (recv) if len(recv) > 20 else recv
-        recv_item = cell(recv_short, COLORS['text_primary'])
+        recv     = tx_data['receiver'] or "—"
+        recv_item = cell(recv, COLORS['text_primary'])
         recv_item.setToolTip(recv)
 
-        eth_item = cell(f"{float(eth_val):.9f}", COLORS['accent_green'], center)
-        gas_item = cell(str(tx_data['gas_used']), COLORS['text_secondary'], center)
-
+        eth_item       = cell(f"{float(eth_val):.9f}", COLORS['accent_green'], center)
+        gas_item       = cell(str(tx_data['gas_used']), COLORS['text_secondary'], center)
         gas_price_gwei = float(tx_data['gas_price_wei']) / 1e9
-        gas_price_item = cell(f"{gas_price_gwei:.4f}", COLORS['text_secondary'], center)
+        gp_item        = cell(f"{gas_price_gwei:.4f}", COLORS['text_secondary'], center)
+        fee_item       = cell(f"{float(fee_val):.9f}", "#f0883e", center)
 
-        fee_item = cell(f"{float(fee_val):.9f}", "#f0883e", center)
-
-        for col, item in enumerate([blk_item, hash_item, sender_item, recv_item,
-                                    eth_item, gas_item, gas_price_item, fee_item]):
+        for col, item in enumerate(
+            [blk_item, hash_item, sender_item, recv_item,
+             eth_item, gas_item, gp_item, fee_item]
+        ):
             self.tx_table.setItem(0, col, item)
 
         self.tx_table.scrollToTop()
@@ -1112,10 +1127,12 @@ class BlockchainMonitorWindow(QMainWindow):
     def _on_tx_filtered(self, block_number):
         self.filtered_count += 1
         self._update_stats()
-        self._log(f"⚡ Block #{block_number} • tx filtered")
+        label = f"Block #{block_number}" if block_number else "TX"
+        self._log(f"⚡ {label} • tx filtered")
 
     def _on_no_tx(self, block_number):
-        self._log(f"📭 Block #{block_number} • no transactions")
+        label = f"Block #{block_number}" if block_number else "Block"
+        self._log(f"📭 {label} • no transactions")
 
     def _on_error(self, msg):
         self._set_status(f"❌ Error: {msg}", COLORS['accent_red'])
@@ -1126,11 +1143,13 @@ class BlockchainMonitorWindow(QMainWindow):
         self._set_status(
             f"✅ Finished | {stats['summary_blocks_processed']} blocks | "
             f"{stats['summary_transactions_monitored']} transactions",
-            COLORS['accent_green']
+            COLORS['accent_green'],
         )
-        self._log(f"✔ Ready! {stats['summary_blocks_processed']} blocks synced.")
+        self._log(f"✔ Done. {stats['summary_blocks_processed']} blocks processed.")
         self.conn_status.setText("● Not connected")
-        self.conn_status.setStyleSheet(f"color: {COLORS['accent_red']}; font-weight: 700;")
+        self.conn_status.setStyleSheet(
+            f"color: {COLORS['accent_red']}; font-weight: 700;"
+        )
         self._reset_buttons()
 
     # ──────────────── HELPERS ────────────────

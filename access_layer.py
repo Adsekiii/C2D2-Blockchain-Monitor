@@ -1,30 +1,112 @@
-from web3 import AsyncWeb3
-from web3.providers import WebSocketProvider
-from config import ConnConfig
+import asyncio
+import json
+import logging
+
+import websockets
+from web3 import Web3
+
+from config import ConnConfig, AppConfig
+
 
 class BlockchainAccess:
-    def __init__(self):
-        self.config = ConnConfig()
-        self._w3_context = AsyncWeb3(WebSocketProvider(self.config.get_wss_url))
-        self.w3 = None
+    def __init__(self, conn_config: ConnConfig, app_config: AppConfig):
+        self.conn = conn_config
+        self.app = app_config
+        self.logger = logging.getLogger("BlockchainAccess")
+        self._w3 = Web3(Web3.HTTPProvider(self.conn.get_https_url))
 
-    async def __aenter__(self):
-        self.w3 = await self._w3_context.__aenter__()
-        return self
+    # -------------------------
+    # HTTP
+    # -------------------------
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._w3_context.__aexit__(exc_type, exc_val, exc_tb)
+    def is_connected(self) -> bool:
+        return self._w3.is_connected()
 
-    async def connect(self):
-        if self.w3 is not None:
-            return await self.w3.is_connected()
-        return False
+    def get_latest_block_number(self) -> int:
+        return self._w3.eth.block_number
 
-    async def get_latest_block(self):
-        return await self.w3.eth.get_block('latest')
+    def get_block(self, block_num: int, full_transactions: bool = True):
+        return self._w3.eth.get_block(block_num, full_transactions)
 
-    async def get_transaction(self, tx_hash):
-        return await self.w3.eth.get_transaction(tx_hash)
+    def get_transaction_receipt(self, tx_hash):
+        return self._w3.eth.get_transaction_receipt(tx_hash)
 
-    async def get_transaction_receipt(self, tx_hash):
-        return await self.w3.eth.get_transaction_receipt(tx_hash)
+    def from_wei(self, value: int, unit: str):
+        return self._w3.from_wei(value, unit)
+
+    # -------------------------
+    # WebSocket subscription
+    # -------------------------
+
+    async def subscribe_new_heads(self, callback) -> None:
+        """
+        Subscribes to newHeads via WebSocket and calls callback(block_num)
+        for every new block. Automatically reconnects on failure.
+        """
+        last_processed = None
+
+        while True:
+            try:
+                self.logger.info(
+                    f"Connecting to WebSocket: {self.conn.wss_url[:40]}..."
+                )
+
+                async with websockets.connect(
+                    self.conn.get_wss_url, ping_interval=20
+                ) as ws:
+
+                    await ws.send(json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_subscribe",
+                        "params": ["newHeads"],
+                    }))
+
+                    ack = json.loads(await ws.recv())
+                    sub_id = ack.get("result", "unknown")
+                    self.logger.info(
+                        f"Subscription active (id={sub_id}). "
+                        f"Waiting for new blocks..."
+                    )
+
+                    async for raw_msg in ws:
+                        try:
+                            msg = json.loads(raw_msg)
+
+                            if msg.get("method") != "eth_subscription":
+                                continue
+
+                            new_number = int(
+                                msg["params"]["result"]["number"], 16
+                            )
+
+                            if last_processed is None:
+                                last_processed = new_number - 1
+
+                            if new_number <= last_processed:
+                                continue
+
+                            for block_num in range(
+                                last_processed + 1, new_number + 1
+                            ):
+                                await callback(block_num)
+
+                            last_processed = new_number
+
+                        except Exception as exc:
+                            self.logger.warning(
+                                f"Error handling WS message: {exc}"
+                            )
+
+            except websockets.exceptions.ConnectionClosed as exc:
+                self.logger.warning(
+                    f"WebSocket connection closed ({exc}). "
+                    f"Retrying in {self.app.reconnect_delay}s..."
+                )
+            except OSError as exc:
+                self.logger.warning(
+                    f"WebSocket network error ({exc}). "
+                    f"Retrying in {self.app.reconnect_delay}s..."
+                )
+
+            await asyncio.sleep(self.app.reconnect_delay)
