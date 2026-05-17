@@ -187,7 +187,7 @@ class BlockchainLogic:
         latest_number = self.access.get_latest_block_number()
         start_block = max(0, latest_number - count + 1)
         # Only pull TX detail for the most recent 10 of the fetched range
-        tx_subset_start = latest_number - 9
+        tx_subset_start = start_block
 
         self.reporter.logger.info(
             f"Fetching blocks {start_block} – {latest_number} "
