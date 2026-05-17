@@ -10,7 +10,9 @@ from reporting_layer import ConsoleReporter
 @pytest.fixture
 def reporter(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    return ConsoleReporter()
+    r = ConsoleReporter()
+    r.logger.propagate = True 
+    return r
 
 
 def test_reporter_initialization_creates_directories_and_csv(reporter):
@@ -125,9 +127,9 @@ def test_print_final_summary(reporter, caplog):
     with caplog.at_level(logging.INFO):
         reporter.print_final_summary()
 
-    assert "Blocks processed: 10" in caplog.text
-    assert "Transactions processed: 50" in caplog.text
-    assert "Total ETH amount: 5.5" in caplog.text
-    assert "Total Gas used: 100000" in caplog.text
-    assert "Total Gas price: 999999" in caplog.text
-    assert "Total ETH fee: 0.1" in caplog.text
+    assert "Blocks processed       : 10" in caplog.text
+    assert "Transactions processed : 50" in caplog.text
+    assert "Total ETH transferred  : 5.5 ETH" in caplog.text
+    assert "Total gas used         : 100000" in caplog.text
+    assert "Total gas price sum    : 999999 Wei" in caplog.text
+    assert "Total fees paid        : 0.1 ETH" in caplog.text
