@@ -39,3 +39,4 @@ web3==7.14.1
 websockets==15.0.1
 yarl==1.23.0
 pytest
+pyqt6-sip

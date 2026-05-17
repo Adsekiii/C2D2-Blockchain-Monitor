@@ -1,11 +1,19 @@
 import asyncio
 import sys
 
+import sys
+
 from access_layer import BlockchainAccess
 from business_logic_layer import BlockchainLogic
 from config import ConnConfig, AppConfig
-from filters import HighValueFilter, HighFeeFilter, GasPriceFilter, FailedTransactionFilter, TokenTransferFilter, AddressFilter, ContractInteractionFilter, WhaleTransactionFilter, FrequentSenderFilter
+from filters import (
+    GasPriceFilter, HighValueFilter, HighFeeFilter,
+    FailedTransactionFilter, TokenTransferFilter,
+    AddressFilter, ContractInteractionFilter,
+    WhaleTransactionFilter, FrequentSenderFilter,
+)
 from reporting_layer import ConsoleReporter
+import gui
 
 
 async def main() -> None:
@@ -41,6 +49,10 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        gui.main()
     except KeyboardInterrupt:
-        pass
+        print("\nStopped by user.")
+
+
+if __name__ == "__main__":
+    main()

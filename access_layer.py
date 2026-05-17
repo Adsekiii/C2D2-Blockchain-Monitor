@@ -12,7 +12,7 @@ class BlockchainAccess:
     def __init__(self, conn_config: ConnConfig, app_config: AppConfig):
         self.conn = conn_config
         self.app = app_config
-        self.logger = logging.getLogger("ConsoleReporter")
+        self.logger = logging.getLogger("BlockchainAccess")
         self._w3 = Web3(Web3.HTTPProvider(self.conn.get_https_url))
 
     # -------------------------
@@ -35,15 +35,21 @@ class BlockchainAccess:
         return self._w3.from_wei(value, unit)
 
     # -------------------------
-    # WebSocket
+    # WebSocket subscription
     # -------------------------
 
     async def subscribe_new_heads(self, callback) -> None:
+        """
+        Subscribes to newHeads via WebSocket and calls callback(block_num)
+        for every new block. Automatically reconnects on failure.
+        """
         last_processed = None
 
         while True:
             try:
-                self.logger.info(f"Connecting to WebSocket: {self.conn.wss_url[:40]}...")
+                self.logger.info(
+                    f"Connecting to WebSocket: {self.conn.wss_url[:40]}..."
+                )
 
                 async with websockets.connect(
                     self.conn.get_wss_url, ping_interval=20
