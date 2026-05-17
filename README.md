@@ -240,13 +240,15 @@ pytest tests/ -v
 
 ## 4. Podział zadań i harmonogram
 
-Szacowany łączny czas pracy: **60 godzin** (4 osoby × ~15 h).
+Szacowany łączny czas pracy: **71 godzin** (4 osoby × ~17.5 h).
 
-| Obszar | Zadania | Szac. czas |
-|---|---|---|
-| Setup i zarządzanie projektem | GitHub, Git-Flow, środowisko, Alchemy | 8 h |
-| Warstwa Dostępu | Połączenie HTTP + WS, pobieranie bloków i TX | 12 h |
-| Warstwa Logiki Biznesowej | Przetwarzanie, filtry, statystyki, obsługa błędów | 16 h |
-| Warstwa Raportowania | Konsola, CSV, raport TXT | 8 h |
-| Testy i jakość | pytest, pokrycie ≥70%, obsługa wyjątków | 10 h |
-| Dokumentacja i prezentacja | README, dokumentacja funkcjonalna/niefunkcjonalna, slajdy | 6 h |
+| Zadania | Szac. czas |
+|---|---|
+| Łączenie z siecią Sepolia | 4 h |
+| Zbieranie informacji z ostatnich N bloków | 8 h |
+| Nasłuchiwanie nowych bloków | 9 h |
+| Przetwarzanie informacji o bloku i transakcji | 10 h |
+| Agregowanie danych | 6 h |
+| Wyświetlanie statystyk w czasie rzeczywistym | 7 h |
+| Zapis rezultatów i danych historycznych do plików | 7 h |
+| Interface graficzny dla użytkowników | 20 h |
