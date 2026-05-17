@@ -1,20 +1,11 @@
 import asyncio
-import asyncio
 from decimal import Decimal
 
 from access_layer import BlockchainAccess
 from config import AppConfig
 
 
-from access_layer import BlockchainAccess
-from config import AppConfig
-
-
 class BlockchainLogic:
-    def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig, filters=None):
-        self.access = access
-        self.reporter = reporter
-        self.app = app_config
     def __init__(self, access: BlockchainAccess, reporter, app_config: AppConfig, filters=None):
         self.access = access
         self.reporter = reporter
@@ -49,12 +40,6 @@ class BlockchainLogic:
 
     def process_block_data(self, block) -> dict:
         tx_count = len(block["transactions"])
-    # -------------------------
-    # Data processing
-    # -------------------------
-
-    def process_block_data(self, block) -> dict:
-        tx_count = len(block["transactions"])
         self.stats["total_blocks"] += 1
         self.stats["total_transactions"] += tx_count
 
@@ -71,6 +56,11 @@ class BlockchainLogic:
         }
 
     def process_transaction_data(self, tx_details, tx_receipt) -> dict | None:
+        
+        if not self.passes_filters(tx_details, tx_receipt):
+            self.stats["filtered_transactions"] += 1
+            return None
+
         gas_used = tx_receipt["gasUsed"]
         eth_amount = self.access.from_wei(tx_details["value"], "ether")
         gas_price = tx_details["gasPrice"]
@@ -86,9 +76,6 @@ class BlockchainLogic:
         if tx_details.get("to"):
             self.stats["unique_receivers"].add(tx_details["to"])
 
-        if not self.passes_filters(tx_details, tx_receipt):
-            self.stats["filtered_transactions"] += 1
-            return None
 
         return {
             "hash": tx_details["hash"].hex()
@@ -99,7 +86,6 @@ class BlockchainLogic:
             "amount_eth": eth_amount,
             "gas_used": gas_used,
             "gas_price_wei": gas_price,
-            "fee_eth": total_cost_eth,
             "fee_eth": total_cost_eth,
         }
 
@@ -156,8 +142,6 @@ class BlockchainLogic:
         """
         Fetches a single block via HTTP, processes it, and (optionally)
         processes the last transaction. Emits data through the reporter.
-        Also emits signals when called from the GUI worker via the reporter
-        callbacks wired in MonitorWorker.
         """
         block = self.access.get_block(block_num, full_transactions=True)
         block_data = self.process_block_data(block)
@@ -174,19 +158,21 @@ class BlockchainLogic:
                     self.reporter.report_filtered_transaction()
             else:
                 self.reporter.report_no_transactions()
-        else:
-            # Block fetched for stats only – no TX detail reported
-            pass
 
     # -------------------------
-    # Fetch historical blocks
+    # Fetch historical blocks (MVP: >= 100 blocks)
     # -------------------------
 
     async def fetch_latest_blocks(self, count: int = None) -> int:
+        """
+        Fetches `count` of the most recent blocks via HTTP (MVP default: 100).
+        Detailed TX data is fetched for the last 10 blocks in the range.
+        Includes rate-limit-friendly delays between HTTP requests.
+        """
         count = count or self.app.blocks_to_fetch
         latest_number = self.access.get_latest_block_number()
         start_block = max(0, latest_number - count + 1)
-        # Only pull TX detail for the most recent 10 of the fetched range
+        # MVP: fetch TX details for the 10 most recent blocks in the range
         tx_subset_start = latest_number - 9
 
         self.reporter.logger.info(
@@ -199,7 +185,8 @@ class BlockchainLogic:
             fetch_tx = block_num >= tx_subset_start
             try:
                 await self._process_block_with_tx(block_num, iteration, fetch_tx)
-                await asyncio.sleep(0.1)
+                # Rate-limit protection: small delay between HTTP requests
+                await asyncio.sleep(self.app.request_delay)
             except Exception as exc:
                 self.reporter.logger.warning(
                     f"Error processing block {block_num}: {exc}"
