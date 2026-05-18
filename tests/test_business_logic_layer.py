@@ -445,9 +445,8 @@ class TestFetchLatestBlocks:
         self._run(self.logic.fetch_latest_blocks(count=3))
         self.reporter.logger.warning.assert_called()
 
-    def test_tx_detail_only_fetched_for_last_10_blocks(self):
-        """Blocks outside the last-10 window should not fetch TX receipts."""
-        latest = 1019  # 20 blocks: 1000..1019, TX detail only for 1010..1019
+    def test_tx_detail_fetched_for_all_blocks(self):
+        latest = 1019  # 20 blocks: 1000..1019
         self.access.get_latest_block_number.return_value = latest
         self.access.get_block.side_effect = lambda num, full_transactions: make_block(
             number=num, tx_hashes=[make_tx_details()], timestamp=num
@@ -458,5 +457,5 @@ class TestFetchLatestBlocks:
 
         self._run(self.logic.fetch_latest_blocks(count=20))
 
-        # get_transaction_receipt should only be called for blocks 1010-1019 (10 blocks)
-        assert self.access.get_transaction_receipt.call_count == 10
+        # get_transaction_receipt should  be called for blocks all blocks 1000-1019 (20 blocks)
+        assert self.access.get_transaction_receipt.call_count == 20
