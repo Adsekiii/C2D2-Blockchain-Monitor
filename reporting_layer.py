@@ -12,6 +12,7 @@ class ConsoleReporter:
         self.total_gas_used = 0
         self.total_gas_price_wei = 0
         self.total_fee_eth = 0
+        self._start_time = datetime.now()
 
         os.makedirs("logs", exist_ok=True)
         os.makedirs("logs/csv", exist_ok=True)
@@ -19,6 +20,7 @@ class ConsoleReporter:
         timestamp = datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
         log_filename = f"logs/{timestamp}.log"
         self.csv_filename = f"logs/csv/{timestamp}.csv"
+        self.txt_filename = f"logs/{timestamp}_summary.txt"
 
         # Unique logger name prevents handler duplication across multiple instances
         self.logger = logging.getLogger(f"ConsoleReporter_{timestamp}")
@@ -98,10 +100,49 @@ class ConsoleReporter:
         self.logger.info("Transaction filtered out")
 
     def print_final_summary(self) -> None:
-        self.logger.info("\n=== SUMMARY REPORT ===")
-        self.logger.info(f"Blocks processed: {self.total_blocks_processed}")
-        self.logger.info(f"Transactions processed: {self.total_txs_processed}")
-        self.logger.info(f"Total ETH amount: {self.total_amount_eth}")
-        self.logger.info(f"Total Gas used: {self.total_gas_used}")
-        self.logger.info(f"Total Gas price: {self.total_gas_price_wei}")
-        self.logger.info(f"Total ETH fee: {self.total_fee_eth}")
+        """
+        Logs the summary to console/log file AND writes a human-readable
+        .txt summary report as required by the project specification.
+        """
+        end_time = datetime.now()
+        duration = end_time - self._start_time
+        avg_gas = (
+            round(self.total_gas_used / self.total_blocks_processed, 2)
+            if self.total_blocks_processed > 0
+            else 0
+        )
+
+        lines = [
+            "=" * 57,
+            "           SEPOLIA BLOCKCHAIN MONITOR – SUMMARY REPORT",
+            "=" * 57,
+            f"  Session start  : {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"  Session end    : {end_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"  Duration       : {str(duration).split('.')[0]}",
+            "-" * 57,
+            f"  Blocks processed       : {self.total_blocks_processed}",
+            f"  Transactions processed : {self.total_txs_processed}",
+            f"  Total ETH transferred  : {self.total_amount_eth} ETH",
+            f"  Total gas used         : {self.total_gas_used}",
+            f"  Average gas / block    : {avg_gas}",
+            f"  Total gas price sum    : {self.total_gas_price_wei} Wei",
+            f"  Total fees paid        : {self.total_fee_eth} ETH",
+            "-" * 57,
+            f"  CSV log  : {self.csv_filename}",
+            f"  Full log : {self.csv_filename.replace('/csv/', '/').replace('.csv', '.log')}",
+            "=" * 57,
+        ]
+
+        summary_text = "\n".join(lines)
+
+        # 1. Console + log file output
+        for line in lines:
+            self.logger.info(line)
+
+        # 2. Standalone .txt summary report (project requirement)
+        try:
+            with open(self.txt_filename, mode="w", encoding="utf-8") as f:
+                f.write(summary_text + "\n")
+            self.logger.info(f"Summary saved to: {self.txt_filename}")
+        except OSError as exc:
+            self.logger.warning(f"Could not write summary file: {exc}")

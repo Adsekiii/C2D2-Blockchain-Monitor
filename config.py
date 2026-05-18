@@ -22,5 +22,9 @@ class ConnConfig:
 
 @dataclass
 class AppConfig:
-    blocks_to_fetch: int = 10   # number of historical blocks to load on startup
-    reconnect_delay: int = 5    # seconds to wait before WebSocket reconnect
+    # MVP requirement: monitor at least 100 of the latest blocks
+    blocks_to_fetch: int = 100
+    # Seconds to wait before WebSocket reconnect attempt
+    reconnect_delay: int = 5
+    # Delay between consecutive HTTP requests (rate-limit protection)
+    request_delay: float = 0.1

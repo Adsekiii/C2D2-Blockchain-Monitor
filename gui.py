@@ -836,8 +836,8 @@ class BlockchainMonitorWindow(QMainWindow):
         init_lyt = QVBoxLayout(init_grp)
         self.initial_blocks_spin = QDoubleSpinBox()
         self.initial_blocks_spin.setDecimals(0)
-        self.initial_blocks_spin.setRange(0, 100)
-        self.initial_blocks_spin.setValue(10)
+        self.initial_blocks_spin.setRange(0, 200)
+        self.initial_blocks_spin.setValue(100)  # MVP: minimum 100 blocks
         self.initial_blocks_spin.setStyleSheet("font-size: 11px;")
         init_lyt.addWidget(self.initial_blocks_spin)
 
