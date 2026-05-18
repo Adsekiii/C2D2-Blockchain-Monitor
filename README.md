@@ -220,7 +220,7 @@ Parametry aplikacji konfiguruje się w `config.py`:
 
 ```bash
 # 1. Sklonuj repozytorium
-git clone https://github.com/<org>/C2D2-Blockchain-Monitor.git
+git clone https://github.com/Adsekiii/C2D2-Blockchain-Monitor.git
 cd C2D2-Blockchain-Monitor
 
 # 2. Zainstaluj zależności
