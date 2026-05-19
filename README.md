@@ -251,4 +251,4 @@ Szacowany łączny czas pracy: **71 godzin** (4 osoby × ~17.5 h).
 | Agregowanie danych | 6 h | Michał Kłyszko |
 | Wyświetlanie statystyk w czasie rzeczywistym | 7 h | Wojciech Paradziński |
 | Zapis rezultatów i danych historycznych do plików | 7 h | Wojciech Paradziński |
-| Interface graficzny dla użytkowników | 20 h | Wojciech Paradziński, Michał Kłszko, Adrian Żurawski |
+| Interface graficzny dla użytkowników | 20 h | Wojciech Paradziński, Michał Kłyszko, Adrian Żurawski |
