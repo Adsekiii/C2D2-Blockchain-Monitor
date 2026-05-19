@@ -138,7 +138,7 @@ Komunikacja między warstwami odbywa się **wyłącznie w dół** – GUI wywoł
 
 ### 2.5 Metodologia pracy – uproszczony Scrum
 
-- **Daily Scrum** – codzienne krótkie spotkania synchronizacyjne (15 min).
+- **Weekly Scrum** – cotygodniowe spotkania synchronizacyjne (~60 min).
 - **Feature branches** – każda funkcjonalność rozwijana na osobnej gałęzi (`feature/<nazwa>`).
 - **Pull Requesty** – scalanie z `main` wyłącznie przez PR z co najmniej jedną recenzją.
 - **Gałęzie projektu**: `main` (stabilna), `feature/access-layer`, `feature/business-logic`, `feature/reporting`, `feature/gui`, `feature/tests`.
