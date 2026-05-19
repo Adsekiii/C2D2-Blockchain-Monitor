@@ -242,13 +242,13 @@ pytest tests/ -v
 
 Szacowany łączny czas pracy: **71 godzin** (4 osoby × ~17.5 h).
 
-| Zadania | Szac. czas |
-|---|---|
-| Łączenie z siecią Sepolia | 4 h |
-| Zbieranie informacji z ostatnich N bloków | 8 h |
-| Nasłuchiwanie nowych bloków | 9 h |
-| Przetwarzanie informacji o bloku i transakcji | 10 h |
-| Agregowanie danych | 6 h |
-| Wyświetlanie statystyk w czasie rzeczywistym | 7 h |
-| Zapis rezultatów i danych historycznych do plików | 7 h |
-| Interface graficzny dla użytkowników | 20 h |
+| Zadania | Szac. czas | Przypisanie |
+|---|---|---|
+| Łączenie z siecią Sepolia | 4 h | Adrian Żurawski |
+| Zbieranie informacji z ostatnich N bloków | 8 h | Bartosz Sebastian |
+| Nasłuchiwanie nowych bloków | 9 h | Bartosz Sebastian |
+| Przetwarzanie informacji o bloku i transakcji | 10 h | Michał Kłyszko |
+| Agregowanie danych | 6 h | Michał Kłyszko |
+| Wyświetlanie statystyk w czasie rzeczywistym | 7 h | Wojciech Paradziński |
+| Zapis rezultatów i danych historycznych do plików | 7 h | Wojciech Paradziński |
+| Interface graficzny dla użytkowników | 20 h | Wojciech Paradziński, Michał Kłyszko, Adrian Żurawski |
